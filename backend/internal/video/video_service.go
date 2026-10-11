@@ -112,14 +112,16 @@ func (vs *VideoService) ListByAuthorID(ctx context.Context, authorID uint) ([]Vi
 
 // GetDetail 获取视频详情，采用 L1(本地缓存) -> L2(Redis) -> L3(MySQL) 三级架构，支持缓存击穿保护和分布式锁机制，确保高并发下的数据一致性和性能。
 func (vs *VideoService) GetDetail(ctx context.Context, id uint) (*Video, error) {
+
+	// 如果没有配置 Redis 缓存，直接从数据库获取视频详情
 	if vs.cache == nil {
-		// 如果没有配置 Redis 缓存，直接从数据库获取视频详情
 		video, err := vs.repo.GetByID(ctx, id)
 		if err != nil {
 			return nil, err
 		}
 		return video, nil
 	}
+
 	// 构建缓存 key
 	cacheKey := vs.cache.Key("video:detail:id=%d", id)
 

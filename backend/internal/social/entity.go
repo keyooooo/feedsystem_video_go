@@ -25,6 +25,10 @@ type GetAllFollowersResponse struct {
 	FollowerCount int64              `json:"follower_count"`
 }
 
+type GetAllVloggersRequest struct {
+	FollowerID uint `json:"follower_id"`
+}
+
 type GetAllVloggersResponse struct {
 	Vloggers     []*account.Account `json:"vloggers"`
 	VloggerCount int64              `json:"vlogger_count"`
@@ -33,8 +37,4 @@ type GetAllVloggersResponse struct {
 type SocialCounts struct {
 	FollowerCount int64 `json:"follower_count"`
 	VloggerCount  int64 `json:"vlogger_count"`
-}
-
-type GetAllVloggersRequest struct {
-	FollowerID uint `json:"follower_id"`
 }

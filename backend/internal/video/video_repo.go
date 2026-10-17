@@ -15,6 +15,7 @@ func NewVideoRepository(db *gorm.DB) *VideoRepository {
 	return &VideoRepository{db: db}
 }
 
+// CreateVideo 创建视频记录，该项目没有使用到该方法，视频的创建逻辑在 VideoService.Publish 中实现，使用了事务保证视频写入库和消息写入本地消息表的一致性。
 func (vr *VideoRepository) CreateVideo(ctx context.Context, video *Video) error {
 	if err := vr.db.WithContext(ctx).Create(video).Error; err != nil {
 		return err
@@ -22,6 +23,7 @@ func (vr *VideoRepository) CreateVideo(ctx context.Context, video *Video) error 
 	return nil
 }
 
+// CreateMsg 创建本地消息记录，该项目没有使用到该方法，消息的创建逻辑在 VideoService.Publish 中实现，使用了事务保证视频写入库和消息写入本地消息表的一致性。
 func (vr *VideoRepository) CreateMsg(ctx context.Context, Msg *OutboxMsg) error {
 	if err := vr.db.WithContext(ctx).Create(Msg).Error; err != nil {
 		return err

@@ -19,6 +19,7 @@ type RabbitMQ struct {
 	Conn *amqp.Connection
 }
 
+// NewRabbitMQ 创建 RabbitMQ 连接
 func NewRabbitMQ(cfg *config.RabbitMQConfig) (*RabbitMQ, error) {
 	if cfg == nil {
 		return nil, errors.New("rabbitmq config is nil")
@@ -31,6 +32,7 @@ func NewRabbitMQ(cfg *config.RabbitMQConfig) (*RabbitMQ, error) {
 	return &RabbitMQ{Conn: conn}, nil
 }
 
+// Close 关闭 RabbitMQ 连接
 func (r *RabbitMQ) Close() error {
 	if r == nil {
 		return nil
@@ -41,6 +43,7 @@ func (r *RabbitMQ) Close() error {
 	return nil
 }
 
+// NewChannel 创建新的 RabbitMQ Channel
 func (r *RabbitMQ) NewChannel() (*amqp.Channel, error) {
 	if r == nil || r.Conn == nil {
 		return nil, errors.New("rabbitmq connection is not initialized")
@@ -48,6 +51,7 @@ func (r *RabbitMQ) NewChannel() (*amqp.Channel, error) {
 	return r.Conn.Channel()
 }
 
+// DeclareTopic 声明一个 topic exchange 和相关的 queue 和 binding
 func DeclareTopic(ch *amqp.Channel, exchange string, queue string, bindingKey string) error {
 	if ch == nil {
 		return errors.New("channel is not initialized")
@@ -95,6 +99,7 @@ func DeclareTopic(ch *amqp.Channel, exchange string, queue string, bindingKey st
 	return nil
 }
 
+// PublishJSON 发布 JSON 格式的消息，供各个 MQ 使用，达成统一的消息发布方式
 func PublishJSON(ctx context.Context, ch *amqp.Channel, exchange string, routingKey string, payload any) error {
 	if ch == nil {
 		return errors.New("channel is not initialized")
@@ -114,6 +119,7 @@ func PublishJSON(ctx context.Context, ch *amqp.Channel, exchange string, routing
 	})
 }
 
+// newEventID 生成一个新的事件 ID
 func newEventID(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {

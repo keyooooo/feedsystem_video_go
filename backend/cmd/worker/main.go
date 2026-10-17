@@ -17,11 +17,12 @@ import (
 	"syscall"
 	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/joho/godotenv"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"gorm.io/gorm"
 )
 
+// Worker 服务负责处理异步任务，包括社交事件、点赞事件、评论事件和视频流行度更新。它从 RabbitMQ 消费消息，并将结果写入数据库或缓存。
 const (
 	socialExchange   = "social.events"
 	socialQueue      = "social.events"
@@ -40,6 +41,7 @@ const (
 	popularityBindingKey = "video.popularity.*"
 )
 
+// connectWithRetry 尝试连接服务，失败时进行指数退避重试
 func connectWithRetry(name string, maxRetries int, fn func() error) {
 	for i := 0; i < maxRetries; i++ {
 		if err := fn(); err == nil {
@@ -87,6 +89,7 @@ func runWorkerWithRetry(ctx context.Context, name string, conn *amqp.Connection,
 	}
 }
 
+// main 是 Worker 服务的入口点
 func main() {
 	// 加载 .env（本地开发）
 	if err := godotenv.Load(); err != nil {
@@ -157,6 +160,7 @@ func main() {
 	if err := declareCommentTopology(topoCh); err != nil {
 		log.Fatalf("Failed to declare comment topology: %v", err)
 	}
+	// popularity worker 依赖 Redis，如果 Redis 不可用，则不声明流行度队列
 	if cache != nil {
 		if err := declarePopularityTopology(topoCh); err != nil {
 			log.Fatalf("Failed to declare popularity topology: %v", err)
@@ -208,6 +212,7 @@ func main() {
 	log.Printf("Worker stopped")
 }
 
+// declareSocialTopology 声明社交事件的交换机和队列
 func declareSocialTopology(ch *amqp.Channel) error {
 	if err := ch.ExchangeDeclare(
 		socialExchange,
@@ -245,6 +250,7 @@ func declareSocialTopology(ch *amqp.Channel) error {
 	return nil
 }
 
+// declarePopularityTopology 声明视频流行度更新的交换机和队列
 func declarePopularityTopology(ch *amqp.Channel) error {
 	if err := ch.ExchangeDeclare(
 		popularityExchange,
@@ -279,6 +285,7 @@ func declarePopularityTopology(ch *amqp.Channel) error {
 	)
 }
 
+// declareLikeTopology 声明点赞事件的交换机和队列
 func declareLikeTopology(ch *amqp.Channel) error {
 	if err := ch.ExchangeDeclare(
 		likeExchange,
@@ -313,6 +320,7 @@ func declareLikeTopology(ch *amqp.Channel) error {
 	)
 }
 
+// declareCommentTopology 声明评论事件的交换机和队列
 func declareCommentTopology(ch *amqp.Channel) error {
 	if err := ch.ExchangeDeclare(
 		commentExchange,

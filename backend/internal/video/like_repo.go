@@ -26,6 +26,7 @@ func (r *LikeRepository) Unlike(ctx context.Context, like *Like) error {
 		Delete(&Like{}).Error
 }
 
+// LikeIgnoreDuplicate 尝试创建点赞记录，如果已经存在则忽略重复错误，返回是否创建成功和可能的错误。部分幂等操作可以使用这个方法来避免重复点赞导致的错误。
 func (r *LikeRepository) LikeIgnoreDuplicate(ctx context.Context, like *Like) (created bool, err error) {
 	if like == nil || like.VideoID == 0 || like.AccountID == 0 {
 		return false, nil
@@ -51,6 +52,7 @@ func (r *LikeRepository) DeleteByVideoAndAccount(ctx context.Context, videoID, a
 	return res.RowsAffected > 0, res.Error
 }
 
+// IsLiked 检查用户是否已经点赞过某个视频，返回布尔值和可能的错误。
 func (r *LikeRepository) IsLiked(ctx context.Context, videoID, accountID uint) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&Like{}).
@@ -62,14 +64,17 @@ func (r *LikeRepository) IsLiked(ctx context.Context, videoID, accountID uint) (
 	return count > 0, nil
 }
 
+// BatchGetLiked 批量查询视频是否被指定用户点赞，返回一个 map，key 为 videoID，value 为是否点赞
 func (r *LikeRepository) BatchGetLiked(ctx context.Context, videoIDs []uint, accountID uint) (map[uint]bool, error) {
 	likeMap := make(map[uint]bool)
+
 	if len(videoIDs) == 0 {
 		return likeMap, nil
 	}
 	if accountID == 0 {
 		return likeMap, nil
 	}
+
 	var likes []Like
 	err := r.db.WithContext(ctx).Model(&Like{}).
 		Where("video_id IN ? AND account_id = ?", videoIDs, accountID).
@@ -77,12 +82,14 @@ func (r *LikeRepository) BatchGetLiked(ctx context.Context, videoIDs []uint, acc
 	if err != nil {
 		return nil, err
 	}
+
 	for _, like := range likes {
 		likeMap[like.VideoID] = true
 	}
 	return likeMap, nil
 }
 
+// ListLikedVideos 获取用户点赞过的视频列表，返回视频对象的切片和可能的错误。
 func (r *LikeRepository) ListLikedVideos(ctx context.Context, accountID uint) ([]Video, error) {
 	var videos []Video
 	if accountID == 0 {

@@ -45,7 +45,7 @@ func (vs *VideoService) Publish(ctx context.Context, video *Video) error {
 		return errors.New("cover url is required")
 	}
 
-	//事务保证视频写入库和消息写入本地消息表的一致性
+	//使用OutboxMsg模式，事务保证视频写入库和消息写入本地消息表的一致性
 	err := vs.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 1. 写入视频表
 		if err := tx.Create(video).Error; err != nil {
@@ -110,7 +110,7 @@ func (vs *VideoService) ListByAuthorID(ctx context.Context, authorID uint) ([]Vi
 	return videos, nil
 }
 
-// GetDetail 获取视频详情，采用 L1(本地缓存) -> L2(Redis) -> L3(MySQL) 三级架构，支持缓存击穿保护和分布式锁机制，确保高并发下的数据一致性和性能。
+// GetDetail 获取视频详情，采用redis缓存，支持缓存击穿保护和分布式锁机制，确保高并发下的数据一致性和性能。
 func (vs *VideoService) GetDetail(ctx context.Context, id uint) (*Video, error) {
 
 	// 如果没有配置 Redis 缓存，直接从数据库获取视频详情
@@ -229,17 +229,20 @@ func (vs *VideoService) UpdateLikesCount(ctx context.Context, id uint, likesCoun
 	return nil
 }
 
+// UpdatePopularity 更新视频的热度值，支持数据库更新、消息队列通知和缓存更新，确保数据一致性和高性能。
 func (vs *VideoService) UpdatePopularity(ctx context.Context, id uint, change int64) error {
 	if err := vs.repo.UpdatePopularity(ctx, id, change); err != nil {
 		return err
 	}
 
+	// 如果配置了消息队列，尝试将热度更新消息发送到消息队列，供其他服务消费，并且返回 nil，表示消息发送成功
 	if vs.popularityMQ != nil {
 		if err := vs.popularityMQ.Update(ctx, id, change); err == nil {
 			return nil
 		}
 	}
 
+	// 如果配置了 Redis 缓存，尝试更新缓存中的热度值，确保缓存与数据库的一致性
 	if vs.cache != nil {
 		// 1) 详情缓存：直接失效（最简单靠谱）
 		_ = vs.cache.Del(context.Background(), vs.cache.Key("video:detail:id=%d", id))
@@ -255,5 +258,6 @@ func (vs *VideoService) UpdatePopularity(ctx context.Context, id uint, change in
 		_ = vs.cache.ZincrBy(opCtx, windowKey, member, float64(change))
 		_ = vs.cache.Expire(opCtx, windowKey, 2*time.Hour)
 	}
+	// 如果没有配置消息队列和 Redis 缓存，直接返回 nil，表示热度更新成功
 	return nil
 }

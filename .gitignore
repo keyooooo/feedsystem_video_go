@@ -37,3 +37,6 @@ go.work.sum
 
 # Ai generated files
 .workbuddy-ai/
+
+# test
+/test/

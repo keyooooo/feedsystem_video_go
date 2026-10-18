@@ -208,7 +208,7 @@ func (f *FeedService) ListLatest(ctx context.Context, limit int, latestBefore ti
 		if err != nil {
 			return ListLatestResponse{}, err
 		}
-		// 如果数据库中没有数据，则返回空结果，避免无限递归
+		// 如果数据库中没有数据，则返回空结果，避免无限递归/ 防止缓存穿透
 		if v == "EMPTY_DB" {
 			return ListLatestResponse{HasMore: false}, nil
 		}

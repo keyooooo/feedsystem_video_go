@@ -481,19 +481,15 @@ func (f *FeedService) ListByPopularity(ctx context.Context, limit int, reqAsOf i
 
 		// dest 是合并后的热榜的 Redis key，格式为 hot:video:merge:1m:<as_of>，其中 <as_of> 是当前时间的 UTC 时间，精确到分钟
 		dest := f.rediscache.Key("hot:video:merge:1m:%s", asOf.Format("200601021504")) // 快照key：同一个as_of页内复用
-		opCtx, cancel := context.WithTimeout(ctx, 80*time.Millisecond)
-		defer cancel()
-
-		// exists 是一个布尔值，表示 dest 是否存在，如果不存在，则将 keys 中的 ZSET 合并到 dest 中，使用 ZUNIONSTORE 命令，聚合方式为 SUM，即相同 member 的 score 相加，如果 dest 已经存在，则直接使用 dest 中的数据进行分页查询
-		exists, _ := f.rediscache.Exists(opCtx, dest)
-		if !exists {
-			_ = f.rediscache.ZUnionStore(opCtx, dest, keys, "SUM")
-			_ = f.rediscache.Expire(opCtx, dest, 2*time.Minute) // 给翻页留时间
-		}
+		// 不要在请求路径同步执行 ZUNIONSTORE。高并发下多个请求同时 miss
+		// 会重复执行聚合，并把 Redis 的排队时间放大成请求超时。
+		f.ensurePopularitySnapshot(dest, keys)
 
 		start := int64(offset)
 		stop := start + int64(limit) - 1
-		members, err := f.rediscache.ZRevRange(opCtx, dest, start, stop)
+		readCtx, cancel := context.WithTimeout(ctx, 80*time.Millisecond)
+		members, err := f.rediscache.ZRevRange(readCtx, dest, start, stop)
+		cancel()
 		if err == nil && len(members) == 0 {
 			if offset > 0 {
 				return ListByPopularityResponse{
@@ -504,6 +500,7 @@ func (f *FeedService) ListByPopularity(ctx context.Context, limit int, reqAsOf i
 				}, nil
 			}
 		}
+
 		if err == nil && len(members) > 0 {
 			ids := make([]uint, 0, len(members))
 			for _, m := range members {
@@ -573,6 +570,52 @@ func (f *FeedService) ListByPopularity(ctx context.Context, limit int, reqAsOf i
 		resp.NextLatestIDBefore = &nextID
 	}
 	return resp, nil
+}
+
+// ensurePopularitySnapshot schedules at most one snapshot build per Redis key.
+// The current request falls back to MySQL while the snapshot is being built,
+// instead of waiting for ZUNIONSTORE to finish.
+func (f *FeedService) ensurePopularitySnapshot(dest string, keys []string) {
+	checkCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	exists, err := f.rediscache.Exists(checkCtx, dest)
+	if err != nil || exists {
+		return
+	}
+
+	lockKey := "lock:" + dest
+	token, locked, err := f.rediscache.Lock(checkCtx, lockKey, time.Second)
+	if err != nil || !locked {
+		return
+	}
+
+	go func() {
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer unlockCancel()
+		defer func() {
+			if err := f.rediscache.Unlock(unlockCtx, lockKey, token); err != nil {
+				log.Printf("feed popularity snapshot unlock failed for %s: %v", dest, err)
+			}
+		}()
+
+		buildCtx, buildCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer buildCancel()
+
+		if exists, err := f.rediscache.Exists(buildCtx, dest); err != nil {
+			log.Printf("feed popularity snapshot existence check failed for %s: %v", dest, err)
+			return
+		} else if exists {
+			return
+		}
+		if err := f.rediscache.ZUnionStore(buildCtx, dest, keys, "SUM"); err != nil {
+			log.Printf("feed popularity snapshot build failed for %s: %v", dest, err)
+			return
+		}
+		if err := f.rediscache.Expire(buildCtx, dest, 2*time.Minute); err != nil {
+			log.Printf("feed popularity snapshot expiration failed for %s: %v", dest, err)
+		}
+	}()
 }
 
 // buildFeedVideos 构建 FeedVideoItem 列表，包含视频信息和当前用户是否点赞的信息，根据各种List方法获取的视频列表，调用 likeRepo 批量查询当前用户是否点赞，并将结果封装到 FeedVideoItem 中返回

@@ -1,0 +1,8 @@
+import {beforeEach,afterEach,it,expect,vi} from 'vitest'
+import {authSession} from '../session/auth'
+import {postJson} from './client'
+beforeEach(()=>authSession.getState().setTokens('old','refresh'))
+afterEach(()=>vi.unstubAllGlobals())
+it('shares one refresh across concurrent unauthorized requests',async()=>{let refreshes=0;vi.stubGlobal('fetch',vi.fn(async(url:string,options:RequestInit)=>{if(url.endsWith('/refresh')){refreshes++;await new Promise(r=>setTimeout(r,10));return Response.json({token:'new'})}return options.headers&&'Authorization'in options.headers&&options.headers.Authorization==='Bearer new'?Response.json({ok:true}):new Response('',{status:401})}));expect(await Promise.all([postJson('/one',{}),postJson('/two',{})])).toEqual([{ok:true},{ok:true}]);expect(refreshes).toBe(1)})
+it('does not restore a session when logout occurs during refresh',async()=>{let complete!:(v:Response)=>void;vi.stubGlobal('fetch',vi.fn(async(url:string)=>url.endsWith('/refresh')?new Promise<Response>(r=>{complete=r}):new Response('',{status:401})));const result=postJson('/protected',{}).catch(e=>e);await vi.waitFor(()=>expect(complete).toBeDefined());authSession.getState().clearTokens();complete(Response.json({token:'late'}));await result;expect(authSession.getState().token).toBeNull()})
+it('rejects protected requests before contacting the server when logged out',async()=>{authSession.getState().clearTokens();const fetch=vi.fn();vi.stubGlobal('fetch',fetch);await expect(postJson('/protected',{}, {authRequired:true})).rejects.toMatchObject({status:401});expect(fetch).not.toHaveBeenCalled()})

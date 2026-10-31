@@ -17,3 +17,6 @@ Retain all existing URLs and paging contracts. React preview runs with Vite reac
 
 ## Progress
 - Worktree created from approved baseline.
+- Foundation commit: 09ce57e; original Vue build and four baseline tests passed.
+- React preview foundation: five tests, both type checks and both production builds passed.
+- Remote blocker: configured credential helper is absent; GitHub connector write request returned HTTP 403. Local work can continue; remote CI remains unverified.

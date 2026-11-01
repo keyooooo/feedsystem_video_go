@@ -323,14 +323,14 @@ test("muting preserves the playhead and a user-paused video", async ({
   await expect
     .poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
     .toBeGreaterThan(0.1);
-  await video.evaluate((v: HTMLVideoElement) => {
+  const pausedAt = await video.evaluate((v: HTMLVideoElement) => {
     v.pause();
-    v.currentTime = 0.8;
+    return v.currentTime;
   });
   await page.getByRole("button", { name: "取消静音", exact: true }).click();
   expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
   expect(
     await video.evaluate((v: HTMLVideoElement) => v.currentTime),
-  ).toBeCloseTo(0.8, 1);
+  ).toBeCloseTo(pausedAt, 1);
   expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(false);
 });

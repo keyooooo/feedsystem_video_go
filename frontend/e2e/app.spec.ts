@@ -334,3 +334,24 @@ test("muting preserves the playhead and a user-paused video", async ({
   ).toBeCloseTo(pausedAt, 1);
   expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(false);
 });
+
+test("local search does not scan subsequent feed pages without an explicit request", async ({
+  page,
+}) => {
+  let nextPages = 0;
+  await page.route("**/api/feed/listLatest", async (route) => {
+    const next = route.request().postDataJSON().latest_time > 0;
+    if (next) nextPages++;
+    await route.fulfill({
+      json: { video_list: items, has_more: !next, next_time: 1 },
+    });
+  });
+  await page.goto("/?q=no-matching-title");
+  await expect(
+    page.getByRole("heading", { name: "没有找到匹配的视频" }),
+  ).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  expect(nextPages).toBe(0);
+  await page.getByRole("button", { name: "继续查找" }).click();
+  await expect.poll(() => nextPages).toBe(1);
+});

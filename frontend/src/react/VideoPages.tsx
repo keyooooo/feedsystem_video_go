@@ -463,7 +463,14 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
   }, [hot, state.items.length]);
   const { more, loading, load } = state;
   useEffect(() => {
-    if (!hot && active >= items.length - 3 && more && !loading) void load();
+    if (
+      !hot &&
+      items.length > 0 &&
+      active >= items.length - 3 &&
+      more &&
+      !loading
+    )
+      void load();
   }, [active, items.length, more, loading, hot, load]);
   useEffect(() => {
     function key(e: KeyboardEvent) {

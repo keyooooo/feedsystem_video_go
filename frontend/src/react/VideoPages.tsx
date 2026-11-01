@@ -1,23 +1,691 @@
-import {useCallback,useEffect,useRef,useState} from 'react'
-import {Link,useNavigate,useParams,useSearchParams} from 'react-router-dom'
-import {Heart,MessageCircle,Share2,Play,Volume2,VolumeX,RefreshCw} from 'lucide-react'
-import type {FeedVideoItem,Comment,Video} from '../api/types'
-import * as feed from '../api/feed'
-import * as video from '../api/video'
-import * as like from '../api/like'
-import * as comments from '../api/comment'
-import {Avatar,Empty,ErrorBox,Modal,useSession,useIdentity,useLoad,useNotice} from './ui'
-import s from './App.module.css'
-export type FeedMode='recommend'|'following'|'likes'|'hot'
-export type Cursor={next_time?:number;next_likes_count_before?:number;next_id_before?:number;as_of?:number;next_offset?:number}
-export function pagingInput(mode:FeedMode,cursor:Cursor,reset:boolean){return mode==='hot'?{limit:10,as_of:reset?0:cursor.as_of||0,offset:reset?0:cursor.next_offset||0}:mode==='likes'?{limit:10,likes_count_before:reset?undefined:cursor.next_likes_count_before,id_before:reset?undefined:cursor.next_id_before}:{limit:10,latest_time:reset?0:cursor.next_time||0}}
-async function fetchPage(mode:FeedMode,cursor:Cursor,reset:boolean){const input=pagingInput(mode,cursor,reset);if(mode==='hot')return feed.listByPopularity(input as {limit:number;as_of:number;offset:number});if(mode==='likes')return feed.listLikesCount(input as {limit:number});if(mode==='following')return feed.listByFollowing(input as {limit:number;latest_time:number});return feed.listLatest(input as {limit:number;latest_time:number})}
-function useFeed(mode:FeedMode){const session=useSession();const [items,setItems]=useState<FeedVideoItem[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState<unknown>(null),[more,setMore]=useState(false);const cursor=useRef<Cursor>({}),busy=useRef(false),generation=useRef(0);const load=useCallback(async(reset=false)=>{if(busy.current)return;const version=generation.current;busy.current=true;setLoading(true);setError(null);try{const result=await fetchPage(mode,cursor.current,reset);if(version!==generation.current)return;cursor.current=result;setMore(result.has_more);setItems(old=>{const map=new Map((reset?[]:old).map(v=>[v.id,v]));for(const item of result.video_list)map.set(item.id,item);return [...map.values()]})}catch(e){if(version===generation.current)setError(e)}finally{if(version===generation.current){busy.current=false;setLoading(false)}}},[mode]);useEffect(()=>{generation.current++;busy.current=false;cursor.current={};setItems([]);setMore(false);void load(true);return()=>{generation.current++}},[load,session.revision]);return {items,setItems,loading,error,more,load}}
-export function Cover({url,title}:{url:string;title:string}){const [failed,setFailed]=useState(false);useEffect(()=>setFailed(false),[url]);return url&&!failed?<img className={s.cover} src={url} alt={title} loading="lazy" onError={()=>setFailed(true)}/>:<div className={s.cover}><Play aria-hidden="true"/><span>暂无封面</span></div>}
-export function VideoCard({item,rank}:{item:FeedVideoItem;rank?:number}){return <article className={s.card}><Link to={`/video/${item.id}`}><Cover url={item.cover_url} title={item.title}/><div className={s.cardBody}>{rank&&<small className={s.eyebrow}>TOP {String(rank).padStart(2,'0')}</small>}<h3>{item.title}</h3><div className={s.row}><small>@{item.author.username}</small><small>♡ {item.likes_count}</small></div></div></Link></article>}
-export function fromVideo(item:Video):FeedVideoItem{return {...item,author:{id:item.author_id,username:item.username},create_time:new Date(item.create_time).getTime()/1000,is_liked:false}}
-function Player({item,active,muted}:{item:FeedVideoItem;active:boolean;muted:boolean}){const ref=useRef<HTMLVideoElement>(null);const [blocked,setBlocked]=useState(false);useEffect(()=>{const element=ref.current;if(!element)return;element.src=item.play_url;element.muted=muted;if(active)void element.play().then(()=>setBlocked(false)).catch(()=>setBlocked(true));else element.pause();return()=>{element.pause();element.removeAttribute('src');element.load()}},[item.play_url,active,muted]);return <><video ref={ref} playsInline loop muted={muted} poster={item.cover_url} preload={active?'metadata':'none'} aria-label={item.title} onClick={()=>{const el=ref.current;if(el){if(el.paused)void el.play().then(()=>setBlocked(false)).catch(()=>setBlocked(true));else{el.pause();setBlocked(true)}}}}/>{blocked&&<button className={s.primary} style={{position:'absolute',top:'45%',left:'35%'}} onClick={()=>void ref.current?.play().then(()=>setBlocked(false)).catch(()=>setBlocked(true))}><Play size={18}/> 点击播放</button>}</>}
-export function CommentPanel({item,onClose}:{item:FeedVideoItem|null;onClose:()=>void}){const [content,setContent]=useState(''),[sending,setSending]=useState(false),[failure,setFailure]=useState<unknown>(null),[deleting,setDeleting]=useState<number|null>(null);const identity=useIdentity(),session=useSession(),navigate=useNavigate();const result=useLoad<Comment[]>(String(item?.id||0),()=>item?comments.listAll(item.id):Promise.resolve([]));useEffect(()=>{setContent('');setFailure(null)},[item?.id]);async function send(){if(!item||!content.trim())return;if(!session.token){navigate('/account?redirect='+encodeURIComponent(location.pathname));return}setSending(true);setFailure(null);try{await comments.publish(item.id,content.trim());setContent('');result.reload()}catch(e){setFailure(e)}finally{setSending(false)}}async function remove(){if(!deleting)return;setSending(true);try{await comments.remove(deleting);setDeleting(null);result.reload()}catch(e){setFailure(e)}finally{setSending(false)}}return <><Modal title="评论" open={!!item} onClose={onClose}><div className={s.dialogBody}>{result.loading?<div className={s.skeleton}/>:result.data?.length?result.data.map(c=><article key={c.id} className={s.comment}><strong>{c.username}</strong><p>{c.content}</p><small>{new Date(c.created_at).toLocaleString()}</small>{identity?.account_id===c.author_id&&<button onClick={()=>setDeleting(c.id)}>删除</button>}</article>):<Empty title="还没有评论"><p>来聊聊你的想法吧。</p></Empty>}<ErrorBox error={result.error} retry={result.reload}/></div><ErrorBox error={failure}/><label>你的评论<textarea value={content} onChange={e=>setContent(e.target.value)} placeholder="友善表达，分享想法"/></label><button className={s.primary} disabled={sending||!content.trim()} onClick={send}>{sending?'发送中…':'发送评论'}</button></Modal><Modal title="删除这条评论？" open={deleting!==null} onClose={()=>setDeleting(null)}><button disabled={sending} onClick={remove}>确认删除</button></Modal></>}
-export function useVideoActions(update:(id:number,liked:boolean)=>void){const session=useSession(),navigate=useNavigate(),show=useNotice(v=>v.show);const [busy,setBusy]=useState<Record<number,boolean>>({});const locks=useRef(new Set<number>());async function toggle(item:FeedVideoItem){if(!session.token){navigate('/account?redirect='+encodeURIComponent(location.pathname+location.search));return}if(locks.current.has(item.id))return;locks.current.add(item.id);setBusy(v=>({...v,[item.id]:true}));try{if(item.is_liked)await like.unlike(item.id);else await like.like(item.id);update(item.id,!item.is_liked)}catch(e){show(e instanceof Error?e.message:'操作失败')}finally{locks.current.delete(item.id);setBusy(v=>({...v,[item.id]:false}))}}async function share(item:FeedVideoItem){try{await navigator.clipboard.writeText(`${location.origin}/video/${item.id}`);show('链接已复制')}catch{show('请复制浏览器地址进行分享')}}return {toggle,share,busy}}
-export function FeedPage({hot=false}:{hot?:boolean}){const [mode,setMode]=useState<FeedMode>(hot?'hot':'recommend'),[active,setActive]=useState(0),[height,setHeight]=useState(600),[muted,setMuted]=useState(true),[drawer,setDrawer]=useState<FeedVideoItem|null>(null);const session=useSession(),navigate=useNavigate(),[query]=useSearchParams(),scroll=useRef<HTMLDivElement>(null);const state=useFeed(hot?'hot':mode);const q=(query.get('q')||'').toLowerCase(),items=state.items.filter(v=>`${v.title} ${v.author.username}`.toLowerCase().includes(q));const actions=useVideoActions((id,is_liked)=>state.setItems(old=>old.map(v=>v.id===id?{...v,is_liked,likes_count:Math.max(0,v.likes_count+(is_liked?1:-1))}:v)));useEffect(()=>{setActive(0);scroll.current?.scrollTo(0,0)},[mode,q]);useEffect(()=>{const el=scroll.current;if(!el)return;const observer=new ResizeObserver(()=>setHeight(el.clientHeight));observer.observe(el);return()=>observer.disconnect()},[hot,state.items.length]);useEffect(()=>{if(!hot&&active>=items.length-3&&state.more&&!state.loading)void state.load()},[active,items.length,state.more,state.loading,hot,state.load]);useEffect(()=>{function key(e:KeyboardEvent){if((e.target as HTMLElement).closest('input,textarea,button,a,[contenteditable]')||drawer)return;if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const idx=Math.max(0,Math.min(items.length-1,active+(e.key==='ArrowDown'?1:-1)));scroll.current?.scrollTo({top:idx*height,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})}}window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[active,height,items.length,drawer]);const start=Math.max(0,active-1),end=Math.min(items.length,active+2);return <>{hot?<><p className={s.eyebrow}>TRENDING NOW</p><h1>此刻，大家都在看</h1><p className={s.muted}>发现正在受到关注的好内容。</p></>:<div className={s.topline}><div className={s.tabs} role="tablist" aria-label="视频来源">{(['recommend','following','likes'] as const).map((key,i)=><button role="tab" aria-selected={mode===key} key={key} onClick={()=>{if(key==='following'&&!session.token){navigate('/account?redirect=/');return}setMode(key)}}>{['推荐','关注','点赞榜'][i]}</button>)}</div><button aria-label={muted?'取消静音':'静音'} onClick={()=>setMuted(!muted)}>{muted?<VolumeX size={20}/>:<Volume2 size={20}/>}</button></div>}<ErrorBox error={state.error} retry={()=>void state.load(true)}/>{state.loading&&!state.items.length?<div className={s.skeleton}/>:!items.length?<Empty title={q?'没有找到匹配的视频':'精彩内容即将到来'}><p className={s.muted}>{q?'换个关键词，或继续加载更多内容。':'稍后刷新，或分享你的第一条作品。'}</p>{q&&state.more&&<button onClick={()=>void state.load()}>继续查找</button>}</Empty>:hot?<div className={s.grid}>{items.map((item,i)=><VideoCard key={item.id} item={item} rank={i+1}/>)}</div>:<div ref={scroll} className={s.feed} onScroll={e=>setActive(Math.round(e.currentTarget.scrollTop/e.currentTarget.clientHeight))}><div style={{height:start*height}}/>{items.slice(start,end).map((item,i)=><section key={item.id} className={s.slide} style={{height}}><div className={s.stage}><Player item={item} active={start+i===active} muted={muted}/><div className={s.meta}><Link to={`/u/${item.author.id}`}><strong>@{item.author.username}</strong></Link><h2 style={{fontSize:18,margin:'8px 0'}}>{item.title}</h2><small>{item.description}</small></div></div><div className={s.actions}><button aria-label={item.is_liked?'取消点赞':'点赞'} aria-pressed={item.is_liked} disabled={actions.busy[item.id]} className={item.is_liked?s.liked:''} onClick={()=>actions.toggle(item)}><Heart fill={item.is_liked?'currentColor':'none'}/>{item.likes_count}</button><button aria-label="打开评论" onClick={()=>setDrawer(item)}><MessageCircle/>评论</button><button aria-label="分享视频" onClick={()=>actions.share(item)}><Share2/>分享</button><Link to={`/video/${item.id}`}>详情 ↗</Link></div></section>)}<div style={{height:Math.max(0,items.length-end)*height}}/></div>}{hot&&state.more&&<button style={{marginTop:24}} disabled={state.loading} onClick={()=>void state.load()}>{state.loading?'加载中…':'发现更多'}</button>}<CommentPanel item={drawer} onClose={()=>setDrawer(null)}/></>}
-export function DetailPage(){const {id}=useParams();const result=useLoad(String(id),async()=>{const item=fromVideo(await video.getDetail(Number(id)));try{item.is_liked=(await like.isLiked(item.id)).is_liked}catch{/* guests can view */}return item});const [item,setItem]=useState<FeedVideoItem|null>(null),[drawer,setDrawer]=useState(false);useEffect(()=>setItem(result.data),[result.data]);const actions=useVideoActions((_,is_liked)=>setItem(v=>v?{...v,is_liked,likes_count:Math.max(0,v.likes_count+(is_liked?1:-1))}:v));return <><ErrorBox error={result.error} retry={result.reload}/>{result.loading?<div className={s.skeleton}/>:item?<><div className={s.slide} style={{height:'70dvh'}}><div className={s.stage}><Player item={item} active muted/><div className={s.meta}><Link to={`/u/${item.author.id}`}>@{item.author.username}</Link><h1>{item.title}</h1></div></div><div className={s.actions}><button aria-label="点赞" onClick={()=>actions.toggle(item)} disabled={actions.busy[item.id]}><Heart/>{item.likes_count}</button><button onClick={()=>setDrawer(true)}><MessageCircle/>评论</button><button onClick={()=>actions.share(item)}><Share2/>分享</button></div></div><CommentPanel item={drawer?item:null} onClose={()=>setDrawer(false)}/></>:<Empty title="视频暂不可用"/>}</>}
+import FollowButton from "./FollowButton";
+import * as Tabs from "@radix-ui/react-tabs";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
+import {
+  Heart,
+  MessageCircle,
+  Share2,
+  Play,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import type { FeedVideoItem, Comment, Video } from "../api/types";
+import * as feed from "../api/feed";
+import * as video from "../api/video";
+import * as like from "../api/like";
+import * as comments from "../api/comment";
+import {
+  Empty,
+  ErrorBox,
+  Modal,
+  useSession,
+  useIdentity,
+  useLoad,
+  useNotice,
+  useMedia,
+} from "./ui";
+import s from "./App.module.css";
+export type FeedMode = "recommend" | "following" | "likes" | "hot";
+export type Cursor = {
+  next_time?: number;
+  next_likes_count_before?: number;
+  next_id_before?: number;
+  as_of?: number;
+  next_offset?: number;
+};
+export function pagingInput(mode: FeedMode, cursor: Cursor, reset: boolean) {
+  return mode === "hot"
+    ? {
+        limit: 10,
+        as_of: reset ? 0 : cursor.as_of || 0,
+        offset: reset ? 0 : cursor.next_offset || 0,
+      }
+    : mode === "likes"
+      ? {
+          limit: 10,
+          likes_count_before: reset
+            ? undefined
+            : cursor.next_likes_count_before,
+          id_before: reset ? undefined : cursor.next_id_before,
+        }
+      : { limit: 10, latest_time: reset ? 0 : cursor.next_time || 0 };
+}
+async function fetchPage(mode: FeedMode, cursor: Cursor, reset: boolean) {
+  const input = pagingInput(mode, cursor, reset);
+  if (mode === "hot")
+    return feed.listByPopularity(
+      input as { limit: number; as_of: number; offset: number },
+    );
+  if (mode === "likes") return feed.listLikesCount(input as { limit: number });
+  if (mode === "following")
+    return feed.listByFollowing(
+      input as { limit: number; latest_time: number },
+    );
+  return feed.listLatest(input as { limit: number; latest_time: number });
+}
+function useFeed(mode: FeedMode) {
+  const session = useSession();
+  const [items, setItems] = useState<FeedVideoItem[]>([]),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState<unknown>(null),
+    [more, setMore] = useState(false);
+  const cursor = useRef<Cursor>({}),
+    busy = useRef(false),
+    generation = useRef(0);
+  const load = useCallback(
+    async (reset = false) => {
+      if (busy.current) return;
+      const version = generation.current;
+      busy.current = true;
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await fetchPage(mode, cursor.current, reset);
+        if (version !== generation.current) return;
+        cursor.current = result;
+        setMore(result.has_more);
+        setItems((old) => {
+          const map = new Map((reset ? [] : old).map((v) => [v.id, v]));
+          for (const item of result.video_list) map.set(item.id, item);
+          return [...map.values()];
+        });
+      } catch (e) {
+        if (version === generation.current) setError(e);
+      } finally {
+        if (version === generation.current) {
+          busy.current = false;
+          setLoading(false);
+        }
+      }
+    },
+    [mode],
+  );
+  useEffect(() => {
+    const epoch = ++generation.current;
+    busy.current = false;
+    cursor.current = {};
+    setItems([]);
+    setMore(false);
+    void load(true);
+    return () => {
+      generation.current = epoch + 1;
+    };
+  }, [load, session.revision]);
+  return { items, setItems, loading, error, more, load };
+}
+export function Cover({ url, title }: { url: string; title: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
+  return url && !failed ? (
+    <img
+      className={s.cover}
+      src={url}
+      alt={title}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  ) : (
+    <div className={s.cover}>
+      <Play aria-hidden="true" />
+      <span>暂无封面</span>
+    </div>
+  );
+}
+export function VideoCard({
+  item,
+  rank,
+}: {
+  item: FeedVideoItem;
+  rank?: number;
+}) {
+  return (
+    <article className={s.card}>
+      <Link to={`/video/${item.id}`}>
+        <Cover url={item.cover_url} title={item.title} />
+        <div className={s.cardBody}>
+          {rank && (
+            <small className={s.eyebrow}>
+              TOP {String(rank).padStart(2, "0")}
+            </small>
+          )}
+          <h3>{item.title}</h3>
+          <div className={s.row}>
+            <small>@{item.author.username}</small>
+            <small>♡ {item.likes_count}</small>
+          </div>
+        </div>
+      </Link>
+    </article>
+  );
+}
+export function fromVideo(item: Video): FeedVideoItem {
+  return {
+    ...item,
+    author: { id: item.author_id, username: item.username },
+    create_time: new Date(item.create_time).getTime() / 1000,
+    is_liked: false,
+  };
+}
+function Player({
+  item,
+  active,
+  muted,
+}: {
+  item: FeedVideoItem;
+  active: boolean;
+  muted: boolean;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [blocked, setBlocked] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    element.src = item.play_url;
+    element.muted = muted;
+    if (active)
+      void element
+        .play()
+        .then(() => setBlocked(false))
+        .catch(() => setBlocked(true));
+    else element.pause();
+    return () => {
+      element.pause();
+      element.removeAttribute("src");
+      element.load();
+    };
+  }, [item.play_url, active, muted]);
+  return (
+    <>
+      <video
+        ref={ref}
+        playsInline
+        loop
+        muted={muted}
+        poster={item.cover_url}
+        preload={active ? "metadata" : "none"}
+        aria-label={item.title}
+        onClick={() => {
+          const el = ref.current;
+          if (el) {
+            if (el.paused)
+              void el
+                .play()
+                .then(() => setBlocked(false))
+                .catch(() => setBlocked(true));
+            else {
+              el.pause();
+              setBlocked(true);
+            }
+          }
+        }}
+      />
+      {blocked && (
+        <button
+          className={s.primary}
+          style={{ position: "absolute", top: "45%", left: "35%" }}
+          onClick={() =>
+            void ref.current
+              ?.play()
+              .then(() => setBlocked(false))
+              .catch(() => setBlocked(true))
+          }
+        >
+          <Play size={18} /> 点击播放
+        </button>
+      )}
+    </>
+  );
+}
+export function CommentPanel({
+  item,
+  onClose,
+}: {
+  item: FeedVideoItem | null;
+  onClose: () => void;
+}) {
+  const wide = useMedia("(min-width: 1200px)");
+  const [content, setContent] = useState(""),
+    [sending, setSending] = useState(false),
+    [failure, setFailure] = useState<unknown>(null),
+    [deleting, setDeleting] = useState<number | null>(null);
+  const identity = useIdentity(),
+    session = useSession(),
+    navigate = useNavigate();
+  const result = useLoad<Comment[]>(String(item?.id || 0), () =>
+    item ? comments.listAll(item.id) : Promise.resolve([]),
+  );
+  useEffect(() => {
+    setContent("");
+    setFailure(null);
+  }, [item?.id]);
+  async function send() {
+    if (!item || !content.trim()) return;
+    if (!session.token) {
+      navigate("/account?redirect=" + encodeURIComponent(location.pathname));
+      return;
+    }
+    setSending(true);
+    setFailure(null);
+    try {
+      await comments.publish(item.id, content.trim());
+      setContent("");
+      result.reload();
+    } catch (e) {
+      setFailure(e);
+    } finally {
+      setSending(false);
+    }
+  }
+  async function remove() {
+    if (!deleting) return;
+    setSending(true);
+    try {
+      await comments.remove(deleting);
+      setDeleting(null);
+      result.reload();
+    } catch (e) {
+      setFailure(e);
+    } finally {
+      setSending(false);
+    }
+  }
+  return (
+    <>
+      <Modal title="评论" inline={wide} open={!!item} onClose={onClose}>
+        <div className={s.dialogBody}>
+          {result.loading ? (
+            <div className={s.skeleton} />
+          ) : result.data?.length ? (
+            result.data.map((c) => (
+              <article key={c.id} className={s.comment}>
+                <strong>{c.username}</strong>
+                <p>{c.content}</p>
+                <small>{new Date(c.created_at).toLocaleString()}</small>
+                {identity?.account_id === c.author_id && (
+                  <button onClick={() => setDeleting(c.id)}>删除</button>
+                )}
+              </article>
+            ))
+          ) : (
+            <Empty title="还没有评论">
+              <p>来聊聊你的想法吧。</p>
+            </Empty>
+          )}
+          <ErrorBox error={result.error} retry={result.reload} />
+        </div>
+        <ErrorBox error={failure} />
+        <label>
+          你的评论
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="友善表达，分享想法"
+          />
+        </label>
+        <button
+          className={s.primary}
+          disabled={sending || !content.trim()}
+          onClick={send}
+        >
+          {sending ? "发送中…" : "发送评论"}
+        </button>
+      </Modal>
+      <Modal
+        title="删除这条评论？"
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+      >
+        <button disabled={sending} onClick={remove}>
+          确认删除
+        </button>
+      </Modal>
+    </>
+  );
+}
+export function useVideoActions(update: (id: number, liked: boolean) => void) {
+  const session = useSession(),
+    navigate = useNavigate(),
+    show = useNotice((v) => v.show);
+  const [busy, setBusy] = useState<Record<number, boolean>>({});
+  const locks = useRef(new Set<number>());
+  async function toggle(item: FeedVideoItem) {
+    if (!session.token) {
+      navigate(
+        "/account?redirect=" +
+          encodeURIComponent(location.pathname + location.search),
+      );
+      return;
+    }
+    if (locks.current.has(item.id)) return;
+    locks.current.add(item.id);
+    setBusy((v) => ({ ...v, [item.id]: true }));
+    try {
+      if (item.is_liked) await like.unlike(item.id);
+      else await like.like(item.id);
+      update(item.id, !item.is_liked);
+    } catch (e) {
+      show(e instanceof Error ? e.message : "操作失败");
+    } finally {
+      locks.current.delete(item.id);
+      setBusy((v) => ({ ...v, [item.id]: false }));
+    }
+  }
+  async function share(item: FeedVideoItem) {
+    try {
+      await navigator.clipboard.writeText(
+        `${location.origin}/video/${item.id}`,
+      );
+      show("链接已复制");
+    } catch {
+      show("请复制浏览器地址进行分享");
+    }
+  }
+  return { toggle, share, busy };
+}
+export function FeedPage({ hot = false }: { hot?: boolean }) {
+  const [mode, setMode] = useState<FeedMode>(hot ? "hot" : "recommend"),
+    [active, setActive] = useState(0),
+    [height, setHeight] = useState(600),
+    [muted, setMuted] = useState(true),
+    [drawer, setDrawer] = useState<FeedVideoItem | null>(null);
+  const session = useSession(),
+    navigate = useNavigate(),
+    [query] = useSearchParams(),
+    scroll = useRef<HTMLDivElement>(null);
+  const state = useFeed(hot ? "hot" : mode);
+  const q = (query.get("q") || "").toLowerCase(),
+    items = state.items.filter((v) =>
+      `${v.title} ${v.author.username}`.toLowerCase().includes(q),
+    );
+  const actions = useVideoActions((id, is_liked) =>
+    state.setItems((old) =>
+      old.map((v) =>
+        v.id === id
+          ? {
+              ...v,
+              is_liked,
+              likes_count: Math.max(0, v.likes_count + (is_liked ? 1 : -1)),
+            }
+          : v,
+      ),
+    ),
+  );
+  useEffect(() => {
+    setActive(0);
+    scroll.current?.scrollTo(0, 0);
+  }, [mode, q]);
+  useEffect(() => {
+    const el = scroll.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setHeight(el.clientHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hot, state.items.length]);
+  const { more, loading, load } = state;
+  useEffect(() => {
+    if (!hot && active >= items.length - 3 && more && !loading) void load();
+  }, [active, items.length, more, loading, hot, load]);
+  useEffect(() => {
+    function key(e: KeyboardEvent) {
+      if (
+        (e.target as HTMLElement).closest(
+          "input,textarea,button,a,[contenteditable]",
+        ) ||
+        drawer
+      )
+        return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const idx = Math.max(
+          0,
+          Math.min(items.length - 1, active + (e.key === "ArrowDown" ? 1 : -1)),
+        );
+        scroll.current?.scrollTo({
+          top: idx * height,
+          behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "instant"
+            : "smooth",
+        });
+      }
+    }
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [active, height, items.length, drawer]);
+  const start = Math.max(0, active - 1),
+    end = Math.min(items.length, active + 2);
+  return (
+    <Tabs.Root
+      value={mode}
+      onValueChange={(value) => {
+        if (value === "following" && !session.token) {
+          navigate("/account?redirect=/");
+          return;
+        }
+        setMode(value as FeedMode);
+      }}
+    >
+      {hot ? (
+        <>
+          <p className={s.eyebrow}>此刻热门</p>
+          <h1>此刻，大家都在看</h1>
+          <p className={s.muted}>发现正在受到关注的好内容。</p>
+        </>
+      ) : (
+        <div className={s.topline}>
+          <Tabs.List className={s.tabs} aria-label="视频来源">
+            {(["recommend", "following", "likes"] as const).map((key, i) => (
+              <Tabs.Trigger
+                value={key}
+                role="tab"
+                aria-selected={mode === key}
+                key={key}
+                onClick={() => {
+                  if (key === "following" && !session.token) {
+                    navigate("/account?redirect=/");
+                    return;
+                  }
+                  setMode(key);
+                }}
+              >
+                {["推荐", "关注", "点赞榜"][i]}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+          <button
+            aria-label={muted ? "取消静音" : "静音"}
+            onClick={() => setMuted(!muted)}
+          >
+            {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+          </button>
+        </div>
+      )}
+      <Tabs.Content
+        value={mode}
+        forceMount
+        {...(hot
+          ? {
+              role: "region",
+              "aria-label": "热榜",
+              "aria-labelledby": undefined,
+            }
+          : {})}
+      >
+        <ErrorBox error={state.error} retry={() => void state.load(true)} />
+        {state.loading && !state.items.length ? (
+          <div className={s.skeleton} />
+        ) : !items.length ? (
+          <Empty title={q ? "没有找到匹配的视频" : "精彩内容即将到来"}>
+            <p className={s.muted}>
+              {q
+                ? "换个关键词，或继续加载更多内容。"
+                : "稍后刷新，或分享你的第一条作品。"}
+            </p>
+            {q && state.more && (
+              <button onClick={() => void state.load()}>继续查找</button>
+            )}
+          </Empty>
+        ) : hot ? (
+          <div className={s.grid}>
+            {items.map((item, i) => (
+              <VideoCard key={item.id} item={item} rank={i + 1} />
+            ))}
+          </div>
+        ) : (
+          <div
+            ref={scroll}
+            className={s.feed}
+            onScroll={(e) =>
+              setActive(
+                Math.round(
+                  e.currentTarget.scrollTop / e.currentTarget.clientHeight,
+                ),
+              )
+            }
+          >
+            <div style={{ height: start * height }} />
+            {items.slice(start, end).map((item, i) => (
+              <section key={item.id} className={s.slide} style={{ height }}>
+                <div className={s.stage}>
+                  <Player
+                    item={item}
+                    active={start + i === active}
+                    muted={muted}
+                  />
+                  <div className={s.meta}>
+                    <Link to={`/u/${item.author.id}`}>
+                      <strong>@{item.author.username}</strong>
+                    </Link>
+                    <h2 style={{ fontSize: 18, margin: "8px 0" }}>
+                      {item.title}
+                    </h2>
+                    <small>{item.description}</small>
+                  </div>
+                </div>
+                <div className={s.actions}>
+                  <button
+                    aria-label={item.is_liked ? "取消点赞" : "点赞"}
+                    aria-pressed={item.is_liked}
+                    disabled={actions.busy[item.id]}
+                    className={item.is_liked ? s.liked : ""}
+                    onClick={() => actions.toggle(item)}
+                  >
+                    <Heart fill={item.is_liked ? "currentColor" : "none"} />
+                    {item.likes_count}
+                  </button>
+                  <button aria-label="打开评论" onClick={() => setDrawer(item)}>
+                    <MessageCircle />
+                    评论
+                  </button>
+                  <button
+                    aria-label="分享视频"
+                    onClick={() => actions.share(item)}
+                  >
+                    <Share2 />
+                    分享
+                  </button>
+                  <FollowButton id={item.author.id} />
+                  <Link to={`/video/${item.id}`}>详情 ↗</Link>
+                </div>
+              </section>
+            ))}
+            <div style={{ height: Math.max(0, items.length - end) * height }} />
+          </div>
+        )}
+        {hot && state.more && (
+          <button
+            style={{ marginTop: 24 }}
+            disabled={state.loading}
+            onClick={() => void state.load()}
+          >
+            {state.loading ? "加载中…" : "发现更多"}
+          </button>
+        )}
+      </Tabs.Content>
+      <CommentPanel item={drawer} onClose={() => setDrawer(null)} />
+    </Tabs.Root>
+  );
+}
+export function DetailPage() {
+  const wide = useMedia("(min-width: 1200px)");
+  const { id } = useParams();
+  const result = useLoad(String(id), async () => {
+    const item = fromVideo(await video.getDetail(Number(id)));
+    try {
+      item.is_liked = (await like.isLiked(item.id)).is_liked;
+    } catch {
+      /* guests can view */
+    }
+    return item;
+  });
+  const [item, setItem] = useState<FeedVideoItem | null>(null),
+    [drawer, setDrawer] = useState(false);
+  useEffect(() => setItem(result.data), [result.data]);
+  useEffect(() => {
+    setDrawer(wide);
+  }, [wide]);
+  const actions = useVideoActions((_, is_liked) =>
+    setItem((v) =>
+      v
+        ? {
+            ...v,
+            is_liked,
+            likes_count: Math.max(0, v.likes_count + (is_liked ? 1 : -1)),
+          }
+        : v,
+    ),
+  );
+  return (
+    <>
+      <ErrorBox error={result.error} retry={result.reload} />
+      {result.loading ? (
+        <div className={s.skeleton} />
+      ) : item ? (
+        <>
+          <div
+            className={`${s.slide} ${s.detailStage}`}
+            style={{ height: "70dvh" }}
+          >
+            <div className={s.stage}>
+              <Player item={item} active muted />
+              <div className={s.meta}>
+                <Link to={`/u/${item.author.id}`}>@{item.author.username}</Link>
+                <h1>{item.title}</h1>
+              </div>
+            </div>
+            <div className={s.actions}>
+              <FollowButton id={item.author.id} />
+              <button
+                aria-label="点赞"
+                onClick={() => actions.toggle(item)}
+                disabled={actions.busy[item.id]}
+              >
+                <Heart />
+                {item.likes_count}
+              </button>
+              <button onClick={() => setDrawer(true)}>
+                <MessageCircle />
+                评论
+              </button>
+              <button onClick={() => actions.share(item)}>
+                <Share2 />
+                分享
+              </button>
+            </div>
+          </div>
+          <CommentPanel
+            item={drawer ? item : null}
+            onClose={() => setDrawer(false)}
+          />
+        </>
+      ) : (
+        <Empty title="视频暂不可用" />
+      )}
+    </>
+  );
+}

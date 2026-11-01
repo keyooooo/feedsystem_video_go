@@ -61,8 +61,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint and typecheck
+        run: npm run lint && npm run typecheck
+
       - name: Test
         run: npm test
 
       - name: Build
         run: npm run build
+
+      - name: Build React preview
+        run: npm run build:react
+
+      - name: Install browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Browser regression
+        run: npm run test:e2e -- --workers=2
+
+      - name: Browser reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-results
+          path: frontend/test-results
+
+      - name: Production container smoke
+        working-directory: .
+        run: bash frontend/scripts/container-smoke.sh

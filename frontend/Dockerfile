@@ -12,7 +12,8 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend/ ./
-RUN npm run build
+ARG FRONTEND_BUILD_SCRIPT=build
+RUN npm run "$FRONTEND_BUILD_SCRIPT" && if [ "$FRONTEND_BUILD_SCRIPT" = "build:react" ]; then cp -r dist-react dist; fi
 
 FROM nginx:1.27-alpine
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf

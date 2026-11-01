@@ -19,5 +19,12 @@ Retain all existing URLs and paging contracts. React preview runs with Vite reac
 - Worktree created from approved baseline.
 - Foundation commit: 09ce57e; original Vue build and four baseline tests passed.
 - React preview foundation: five tests, both type checks and both production builds passed.
-- Remote blocker: configured credential helper is absent; GitHub connector write request returned HTTP 403. Local work can continue; remote CI remains unverified.
+- SSH access recovered using the existing WSL id_rsa; origin now uses SSH. Seven migration commits pushed; CI started.
 - Shared session and request layer implemented with regression tests for concurrent refresh and logout races.
+
+- Full React feature preview implemented, including account flows, feed, comments, social, messages and upload cancellation.
+- 22 unit/component tests and ten Chromium browser tests passed, including actual synthetic-video playback.
+- Live dedicated-account verification passed: authentication, feeds, follow/unfollow, messages, 6MB two-chunk upload/status/merge, cover, publish, Range and likes/comment cleanup.
+- Chromium libraries and Chinese fonts were extracted into /tmp for local testing; WebKit and production container tests run in GitHub Actions.
+
+- Browser regression also covers actual playback, multipart publishing, SPA upload cancellation, keyboard focus and axe accessibility. CI is extended to WebKit and Docker proxy/Range smoke verification.

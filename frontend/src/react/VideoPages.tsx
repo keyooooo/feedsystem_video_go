@@ -187,19 +187,34 @@ function Player({
     const element = ref.current;
     if (!element) return;
     element.src = item.play_url;
-    element.muted = muted;
-    if (active)
-      void element
-        .play()
-        .then(() => setBlocked(false))
-        .catch(() => setBlocked(true));
-    else element.pause();
     return () => {
       element.pause();
       element.removeAttribute("src");
       element.load();
     };
-  }, [item.play_url, active, muted]);
+  }, [item.play_url]);
+  useEffect(() => {
+    if (ref.current) ref.current.muted = muted;
+  }, [muted]);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    let live = true;
+    if (active)
+      void element
+        .play()
+        .then(() => {
+          if (live) setBlocked(false);
+        })
+        .catch(() => {
+          if (live) setBlocked(true);
+        });
+    else element.pause();
+    return () => {
+      live = false;
+      element.pause();
+    };
+  }, [item.play_url, active]);
   return (
     <>
       <video
@@ -353,6 +368,7 @@ export function useVideoActions(update: (id: number, liked: boolean) => void) {
     navigate = useNavigate(),
     show = useNotice((v) => v.show);
   const [busy, setBusy] = useState<Record<number, boolean>>({});
+  const [shareUrl, setShareUrl] = useState("");
   const locks = useRef(new Set<number>());
   async function toggle(item: FeedVideoItem) {
     if (!session.token) {
@@ -383,10 +399,28 @@ export function useVideoActions(update: (id: number, liked: boolean) => void) {
       );
       show("链接已复制");
     } catch {
-      show("请复制浏览器地址进行分享");
+      setShareUrl(`${location.origin}/video/${item.id}`);
     }
   }
-  return { toggle, share, busy };
+  return {
+    toggle,
+    share,
+    busy,
+    sharePanel: (
+      <Modal title="分享视频" open={!!shareUrl} onClose={() => setShareUrl("")}>
+        <p>选中下方链接后复制，发送给朋友。</p>
+        <label>
+          视频链接
+          <input
+            readOnly
+            autoFocus
+            value={shareUrl}
+            onFocus={(e) => e.currentTarget.select()}
+          />
+        </label>
+      </Modal>
+    ),
+  };
 }
 export function FeedPage({ hot = false }: { hot?: boolean }) {
   const [mode, setMode] = useState<FeedMode>(hot ? "hot" : "recommend"),
@@ -607,6 +641,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
           </button>
         )}
       </Tabs.Content>
+      {actions.sharePanel}
       <CommentPanel item={drawer} onClose={() => setDrawer(null)} />
     </Tabs.Root>
   );
@@ -642,6 +677,7 @@ export function DetailPage() {
   );
   return (
     <>
+      {actions.sharePanel}
       <ErrorBox error={result.error} retry={result.reload} />
       {result.loading ? (
         <div className={s.skeleton} />

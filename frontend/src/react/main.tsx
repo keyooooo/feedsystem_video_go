@@ -23,7 +23,18 @@ class ErrorBoundary extends Component<
     );
   }
 }
-const router = createBrowserRouter([{ path: "*", element: <App /> }]);
+const router = createBrowserRouter([
+  {
+    path: "*",
+    element: <App />,
+    errorElement: (
+      <main style={{ padding: 48 }}>
+        <h1>页面暂时遇到问题</h1>
+        <button onClick={() => location.reload()}>刷新页面</button>
+      </main>
+    ),
+  },
+]);
 createRoot(document.getElementById("app")!).render(
   <StrictMode>
     <ErrorBoundary>

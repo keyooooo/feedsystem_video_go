@@ -185,7 +185,7 @@ test("publishes multipart media through the complete browser workflow", async ({
       const raw = new Request(route.request().url(), {
         method: "POST",
         headers: route.request().headers(),
-        body: route.request().postDataBuffer()!,
+        body: new Uint8Array(route.request().postDataBuffer()!).buffer,
       });
       const form = await raw.formData();
       uploaded.push(Number(form.get("chunk_index")));
@@ -291,4 +291,46 @@ test("keyboard tabs, comment focus and accessibility remain usable", async ({
     .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
     .analyze();
   expect(result.violations).toEqual([]);
+});
+
+test("sharing without clipboard permissions exposes the actual video permalink", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("denied")) },
+    }),
+  );
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "分享视频", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "分享视频", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("视频链接")).toHaveValue(
+    "http://127.0.0.1:4173/video/1",
+  );
+});
+
+test("muting preserves the playhead and a user-paused video", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const video = page.locator("video").first();
+  await expect
+    .poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
+    .toBeGreaterThan(0.1);
+  await video.evaluate((v: HTMLVideoElement) => {
+    v.pause();
+    v.currentTime = 0.8;
+  });
+  await page.getByRole("button", { name: "取消静音", exact: true }).click();
+  expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+  expect(
+    await video.evaluate((v: HTMLVideoElement) => v.currentTime),
+  ).toBeCloseTo(0.8, 1);
+  expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(false);
 });

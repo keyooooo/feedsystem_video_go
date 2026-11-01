@@ -28,3 +28,10 @@ Retain all existing URLs and paging contracts. React preview runs with Vite reac
 - Chromium libraries and Chinese fonts were extracted into /tmp for local testing; WebKit and production container tests run in GitHub Actions.
 
 - Browser regression also covers actual playback, multipart publishing, SPA upload cancellation, keyboard focus and axe accessibility. CI is extended to WebKit and Docker proxy/Range smoke verification.
+
+## React cutover
+- Verification commit 523f3ee passed all CI gates: backend checks, 22 unit/component tests, both builds, Chromium/WebKit browser regression and production container deep-route/API/Range smoke.
+- React is now the default entry. Vue files, Pinia, Vue Router, Vue build tooling and the temporary mode were removed. Routes load lazily with a skeleton fallback.
+- Existing backend and docker-compose.yml remain identical to server_test.
+
+- Default-entry cutover locally validated: strict source/config/browser-test types, lint, 22 unit/component tests, 12 Chromium cases and production build. Added clipboard fallback and mute/playhead regression coverage. Final cutover CI pending at commit time.

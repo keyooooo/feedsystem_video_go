@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SMOKE_ID="shortvideo-smoke-${GITHUB_RUN_ID:-$$}"
 cleanup(){ docker rm -f "$SMOKE_ID-frontend" "$SMOKE_ID-backend" >/dev/null 2>&1 || true; docker network rm "$SMOKE_ID" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
-docker build -f "$ROOT/frontend/Dockerfile" --build-arg FRONTEND_BUILD_SCRIPT=build:react -t "$SMOKE_ID" "$ROOT"
+docker build -f "$ROOT/frontend/Dockerfile" -t "$SMOKE_ID" "$ROOT"
 docker network create "$SMOKE_ID" >/dev/null
 docker run -d --name "$SMOKE_ID-backend" --network "$SMOKE_ID" --network-alias backend -v "$ROOT/frontend/scripts/smoke-backend.mjs:/server.mjs:ro" -v "$ROOT/frontend/e2e/fixtures:/fixtures:ro" node:24-alpine node /server.mjs >/dev/null
 docker run -d --name "$SMOKE_ID-frontend" --network "$SMOKE_ID" -p 127.0.0.1::80 "$SMOKE_ID" >/dev/null

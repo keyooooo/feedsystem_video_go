@@ -1,59 +1,57 @@
-# feedsystem_video_go frontend
+# ShortVideo React frontend
 
-Vue 3 + Vite 前端，面向 `backend/` 的短视频 Feed 应用。默认通过 Vite 代理把 `/api/...` 转发到 `http://localhost:8080/...`。
+React 19 + TypeScript + Vite 7 + React Router 7 + Zustand 5。界面采用炭黑、青绿与珊瑚红设计，支持电脑侧栏、平板图标导航和手机底部导航。
 
-## 页面
+## 启动
 
-| 路由 | 页面 | 说明 |
-|------|------|------|
-| `/` | 推荐页 | 沉浸式短视频播放，支持推荐、关注、点赞榜三个 Tab，本地搜索标题/作者，滚动加载。 |
-| `/hot` | 热榜 | 对接 `/feed/listByPopularity`，支持刷新与加载更多。 |
-| `/video` | 发布页 | 登录后可发布视频；视频按 5MB 分片上传，支持 MD5 校验、并发上传、失败重试、断点续传。 |
-| `/video/:id` | 视频详情 | 视频播放、点赞、评论抽屉、作者信息。 |
-| `/account` | 账号页 | 登录、个人信息、粉丝/关注入口。 |
-| `/account/register` | 注册页 | 创建账号。 |
-| `/account/change-password` | 改密页 | 使用旧密码修改密码。 |
-| `/settings` | 设置页 | 改名、退出登录、跳转改密。 |
-| `/u/:id` | 用户主页 | 用户作品、粉丝/关注列表、关注/取关、私信入口。 |
-| `/messages` | 私信联系人 | 从粉丝和关注用户中选择聊天对象。 |
-| `/messages/:peerId` | 私信会话 | 查看最近 50 条私信并发送消息。 |
-
-## 前端能力
-
-- Pinia 保存 access token 与 refresh token。
-- API Client 在 401 时自动调用 `/account/refresh` 并重试原请求。
-- 发布页使用 `spark-md5` 计算文件 MD5 与分片 MD5。
-- 播放页使用虚拟渲染窗口，只保留当前视频前后各一条 DOM，降低长列表播放成本。
-- 点赞、关注、评论、分享等交互通过 toast 提示结果。
-- Vite 代理地址可通过 `VITE_API_BASE` 覆盖。
-
-## 开发启动
-
-先启动后端 API：
+使用 Node.js 24。在当前目录执行：
 
 ```bash
-cd backend
-CONFIG_PATH=configs/config.compose-local.yaml go run ./cmd
-```
-
-启动前端：
-
-```bash
-cd frontend
-npm install
+npm ci
+cp .env.example .env.local
 npm run dev
 ```
 
-完整链路可在项目根目录执行：
+默认通过本地 `/api` 与 `/static` 代理连接 `http://8.134.84.151:8080`。修改 `.env.local` 中的 `API_PROXY_TARGET` 可切换后端。`VITE_API_BASE` 默认 `/api`，属于构建时变量；不要在 `VITE_` 变量中存储密码。
+
+## 页面
+
+- `/` 推荐、关注、点赞榜；搜索已加载的视频，窗口内最多挂载三个视频。
+- `/hot` 热榜；`/video/:id` 视频详情与评论。
+- `/video` 拖放上传、封面预览、分片续传和发布；上传时离开页面需要确认。
+- `/account` 登录或自己的作品/喜欢；注册与改密 URL 保持不变。
+- `/u/:id` 主页、粉丝、关注；`/messages` 联系人；`/messages/:peerId` 会话。
+- `/settings` 资料编辑、头像、退出登录。
+
+请求层兼容原后端协议与 token 存储键。401 刷新合并并发请求；退出后旧响应不能恢复会话。关注操作兼容后端异步落库。弹窗、Tabs 使用 Radix，图标使用 Lucide；支持键盘、减少动态效果和清晰焦点。
+
+## 验证
 
 ```bash
-./start.sh
-```
-
-## 构建
-
-```bash
+npm run lint
+npm run typecheck
+npm test
+npx playwright install --with-deps chromium webkit
+npm run test:e2e
 npm run build
+# 一次执行上述代码检查、测试、构建和浏览器回归
+npm run verify
 ```
 
-Docker Compose 中前端容器使用 Nginx 托管构建产物，并把 `/api` 反向代理到后端服务。
+浏览器测试使用自主生成的 MP4/封面与独立 Mock，覆盖四种视口、实际播放、发布、离页取消、焦点和 axe 检查。截图及 trace 存放在忽略的 `test-results/`。CI 同时运行 Chromium、WebKit 和生产镜像路由/API/Range smoke test。
+
+真实服务器联调显式执行 `npm run test:live`，只使用专用账号和合成作品，凭据保存在被忽略的 `.e2e-accounts.local`，权限 600。不存在删除 API 的视频与私信会保留在测试账号下；可撤销的关注、点赞和评论会清理。运行 `npm run test:live:browser` 可只读验证已发布测试视频与桌面/手机截图。
+
+## 构建与部署
+
+`npm run build` 输出 `dist/`。从仓库根目录构建：
+
+```bash
+docker build -f frontend/Dockerfile -t feedsystem-frontend .
+```
+
+保持现有 Compose 与后端服务配置，Nginx 托管 React 构建产物，支持 history URL 回退，并代理 `/api` 与 `/static`。本次重构不自动替换服务器容器。
+
+## 维护
+
+开始修改前阅读 `AGENTS.md`、`Agent.md` 和 `REFACTOR_PLAN.md`。每批变更同步测试、验证、独立提交和检查 CI。Vue 基线可从 `58a7c0c` 或迁移过程提交中恢复。

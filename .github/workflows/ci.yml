@@ -70,9 +70,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Build React preview
-        run: npm run build:react
-
       - name: Install browsers
         run: npx playwright install --with-deps chromium webkit
 

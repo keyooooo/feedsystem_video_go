@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/dist
+**/dist-react
+**/test-results
+**/playwright-report
+**/.run
+**/*.log
+**/*.local
+**/.env
+**/.env.*
+!**/.env.example

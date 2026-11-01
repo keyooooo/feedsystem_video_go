@@ -50,6 +50,8 @@ npm run verify
 docker build -f frontend/Dockerfile -t feedsystem-frontend .
 ```
 
+镜像 smoke test 使用合成哨兵文件验证 `*.local`、本地环境文件和测试产物不会进入构建层。
+
 保持现有 Compose 与后端服务配置，Nginx 托管 React 构建产物，支持 history URL 回退，并代理 `/api` 与 `/static`。本次重构不自动替换服务器容器。
 
 ## 维护

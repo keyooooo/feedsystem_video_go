@@ -12,7 +12,8 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend/ ./
-RUN npm run build
+# Local environment and test credentials must not enter build layers.
+RUN test -z "$(find . -maxdepth 1 -name '*.local' -print)" && npm run build
 
 FROM nginx:1.27-alpine
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf

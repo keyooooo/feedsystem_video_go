@@ -68,10 +68,31 @@ async function mockUpload(page: Page, options: Options = {}) {
       },
     };
   }
-  await page.addInitScript(() => {
+  await page.addInitScript((uploadOrigin) => {
     const claims = btoa(JSON.stringify({ account_id: 8, username: "author" }));
     localStorage.setItem("access_token", `header.${claims}.signature`);
-  });
+    // WebKit's intercepted Request omits Blob bodies. Record the browser input to fetch.
+    const uploadBodies = new Map<string, number | string>();
+    Object.assign(window, { uploadBodies });
+    const fetchRequest = window.fetch;
+    window.fetch = function (input, init) {
+      if (
+        typeof input === "string" &&
+        new URL(input, location.href).origin === uploadOrigin
+      ) {
+        if (init?.body instanceof Blob) uploadBodies.set(input, init.body.size);
+        if (typeof init?.body === "string") uploadBodies.set(input, init.body);
+      }
+      return fetchRequest.call(this, input, init);
+    };
+  }, oss!);
+  const browserBody = (url: string) =>
+    page.evaluate(
+      (value) =>
+        Reflect.get(window, "uploadBodies").get(value) as
+          number | string | undefined,
+      url,
+    );
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -195,7 +216,8 @@ async function mockUpload(page: Page, options: Options = {}) {
     }
     if (q.has("partNumber")) {
       const number = Number(q.get("partNumber"));
-      const size = request.postDataBuffer()?.length;
+      const size =
+        request.postDataBuffer()?.length ?? (await browserBody(request.url()));
       sends.push(number);
       peak = Math.max(peak, ++active);
       try {
@@ -222,7 +244,7 @@ async function mockUpload(page: Page, options: Options = {}) {
         expect(size).toBe(
           Math.min(partSize, asset(id).size! - (number - 1) * partSize),
         );
-        parts.set(number, size!);
+        parts.set(number, Number(size));
         await route.fulfill({
           headers: { ...headers, ETag: `"part-${number}"` },
         });
@@ -233,9 +255,9 @@ async function mockUpload(page: Page, options: Options = {}) {
     }
     if (method === "POST" && q.has("uploadId")) {
       committed++;
-      expect(request.postData()).toContain(
-        '<PartNumber>1</PartNumber><ETag>"part-1"</ETag>',
-      );
+      expect(
+        request.postData() ?? (await browserBody(request.url())),
+      ).toContain('<PartNumber>1</PartNumber><ETag>"part-1"</ETag>');
       await route.fulfill({
         headers,
         body: "<CompleteMultipartUploadResult/>",
@@ -248,7 +270,9 @@ async function mockUpload(page: Page, options: Options = {}) {
     }
     expect(method).toBe("PUT");
     expect(["cover", "avatar"]).toContain(asset(id).kind);
-    expect(request.postDataBuffer()?.length).toBe(asset(id).size);
+    expect(
+      request.postDataBuffer()?.length ?? (await browserBody(request.url())),
+    ).toBe(asset(id).size);
     await route.fulfill({ headers });
   });
   return {

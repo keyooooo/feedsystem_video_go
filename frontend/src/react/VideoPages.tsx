@@ -219,11 +219,10 @@ function Player({
     };
     const restore = () => {
       if (pendingTime === undefined) return;
-      element.currentTime = Math.min(
-        pendingTime,
-        element.duration || pendingTime,
-      );
+      // WebKit may reset a seek made at loadedmetadata while it opens the new source.
+      const time = Math.min(pendingTime, element.duration || pendingTime);
       pendingTime = undefined;
+      if (time > 0) element.currentTime = time;
       if (wantsPlayback.current) {
         void element.play().then(
           () => {
@@ -243,7 +242,7 @@ function Player({
       element.addEventListener("timeupdate", sample);
       element.addEventListener("seeking", seek);
       element.addEventListener("error", error);
-      element.addEventListener("loadedmetadata", restore);
+      element.addEventListener("canplay", restore);
     }
     element.src = source;
     return () => {
@@ -252,7 +251,7 @@ function Player({
       element.removeEventListener("timeupdate", sample);
       element.removeEventListener("seeking", seek);
       element.removeEventListener("error", error);
-      element.removeEventListener("loadedmetadata", restore);
+      element.removeEventListener("canplay", restore);
       element.pause();
       element.removeAttribute("src");
       element.load();

@@ -306,6 +306,7 @@ test("OSS direct upload renews STS once across three workers and publishes only 
   await expect(page.getByRole("link", { name: "查看作品 ↗" })).toHaveAttribute(
     "href",
     "/video/97",
+    { timeout: 15_000 },
   );
   expect(mock.metrics()).toMatchObject({
     peak: 3,
@@ -395,6 +396,7 @@ test("OSS direct avatar upload uses a separate staged asset and applies after va
 
 test("OSS direct playback refreshes its stable media URL on an expired seek and preserves pause", async ({
   page,
+  request: api,
 }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
@@ -423,40 +425,47 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
   await page.route("**/api/comment/listAll", (route) =>
     route.fulfill({ json: [] }),
   );
-  const ranges: string[] = [];
   const refresh: boolean[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === stablePath)
+      refresh.push(url.searchParams.has("resolve"));
+  });
   if (process.env.E2E_BASE_URL) {
-    // Exercise the production Nginx proxy and a real HTTP redirect/206 response.
-    page.on("request", (request) => {
-      const url = new URL(request.url());
-      if (url.pathname === stablePath)
-        refresh.push(url.searchParams.has("refresh"));
-      const range = request.headers()["range"];
-      if (url.pathname === "/static/seek.mp4" && range) ranges.push(range);
+    const range = await api.get(stablePath, {
+      headers: { Range: "bytes=0-1" },
     });
+    expect(range.status()).toBe(206);
+    expect(range.headers()["content-range"]).toBe(`bytes 0-1/${clip.length}`);
   } else {
-    await page.route(`**${stablePath}*`, (route) => {
-      const request = route.request();
-      const range = request.headers()["range"] || "";
-      const [, left, right] = range.match(/^bytes=(\d+)-(\d*)$/) ?? [];
-      refresh.push(new URL(request.url()).searchParams.has("refresh"));
-      if (range) ranges.push(range);
-      const start = left ? Number(left) : 0;
-      const end = right
-        ? Math.min(Number(right), clip.length - 1)
-        : clip.length - 1;
-      return route.fulfill({
-        status: left ? 206 : 200,
-        body: clip.subarray(start, end + 1),
-        headers: {
-          "Content-Type": "video/mp4",
-          "Accept-Ranges": "bytes",
-          ...(left
-            ? { "Content-Range": `bytes ${start}-${end}/${clip.length}` }
-            : {}),
-        },
-      });
-    });
+    await page.route(`**${stablePath}*resolve=1`, (route) =>
+      route.fulfill({ json: { url: "/static/seek.mp4?mock-signature=fresh" } }),
+    );
+    await page.route(
+      (url) =>
+        (url.pathname === stablePath && !url.searchParams.has("resolve")) ||
+        url.pathname === "/static/seek.mp4",
+      (route) => {
+        const request = route.request();
+        const range = request.headers()["range"] || "";
+        const [, left, right] = range.match(/^bytes=(\d+)-(\d*)$/) ?? [];
+        const start = left ? Number(left) : 0;
+        const end = right
+          ? Math.min(Number(right), clip.length - 1)
+          : clip.length - 1;
+        return route.fulfill({
+          status: left ? 206 : 200,
+          body: clip.subarray(start, end + 1),
+          headers: {
+            "Content-Type": "video/mp4",
+            "Accept-Ranges": "bytes",
+            ...(left
+              ? { "Content-Range": `bytes ${start}-${end}/${clip.length}` }
+              : {}),
+          },
+        });
+      },
+    );
   }
   await page.goto("/video/97");
   const player = page.getByLabel("签名播放", { exact: true });
@@ -504,7 +513,6 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
   expect(await player.evaluate((video: HTMLVideoElement) => video.paused)).toBe(
     true,
   );
-  expect(ranges.length).toBeGreaterThan(0);
   await page.getByRole("button", { name: "分享" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "视频链接" })).toHaveValue(

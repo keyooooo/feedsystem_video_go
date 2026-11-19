@@ -14,6 +14,7 @@ G1 从 `origin/main` 的 `5a326071f13ea303ee9abc6ffa759e1a02af687c` 开始。G2 
 | POST `/api/video/publish` | `{"title":"猫咪","description":"#猫咪","video_asset_id":"<id>","cover_asset_id":"<id>"}` | 200，作品对象沿用既有字段 |
 | POST `/api/account/applyAvatar` | `{"asset_id":"<id>"}` | 200，`{"avatar_url":"/api/media/assets/<id>"}` |
 | GET 或 HEAD `/api/media/assets/:id` | 空 | 307，`Location` 为 15 分钟内有效的公网 HTTPS OSS URL，响应禁止缓存 |
+| GET `/api/media/assets/:id?resolve=1` | 空 | 200，`{"url":"https://..." }`，复用媒体公开状态校验和签名有效期，响应禁止缓存 |
 
 上传会话、发布与头像应用使用既有应用 Bearer 登录令牌。媒体路由允许匿名访问已发布作品的资产和当前生效的头像。React 使用站内作品详情页作为分享链接。
 

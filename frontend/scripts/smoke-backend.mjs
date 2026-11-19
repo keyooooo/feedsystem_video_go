@@ -15,9 +15,18 @@ http
       return;
     }
     if (/^\/media\/assets\/[a-f0-9]{32}$/.test(url.pathname)) {
-      const refresh = url.searchParams.has("refresh") ? "fresh" : "initial";
+      if (url.searchParams.get("resolve") === "1") {
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        });
+        res.end(
+          JSON.stringify({ url: "/static/seek.mp4?mock-signature=fresh" }),
+        );
+        return;
+      }
       res.writeHead(307, {
-        Location: `/static/seek.mp4?mock-signature=${refresh}`,
+        Location: "/static/seek.mp4?mock-signature=initial",
         "Cache-Control": "no-store",
       });
       res.end();

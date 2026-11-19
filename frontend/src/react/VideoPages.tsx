@@ -16,6 +16,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { FeedVideoItem, Comment, Video } from "../api/types";
+import { getJson } from "../api/client";
 import * as feed from "../api/feed";
 import * as video from "../api/video";
 import * as like from "../api/like";
@@ -200,6 +201,11 @@ function Player({
     let lastTime = 0;
     let pendingTime: number | undefined;
     let live = true;
+    let resolving = false;
+    const controller = new AbortController();
+    const playbackOrigin =
+      import.meta.env.VITE_OSS_PLAYBACK_ORIGIN ||
+      import.meta.env.VITE_OSS_UPLOAD_ORIGIN;
 
     const sample = () => {
       if (pendingTime !== undefined) return;
@@ -207,14 +213,35 @@ function Player({
       setPosition(lastTime);
     };
     const retry = (time = element.currentTime || pendingTime || lastTime) => {
-      if (!signed || refreshed) return false;
+      if (!signed || refreshed || resolving) return false;
       refreshed = true;
       pendingTime = time;
-      lastRequest = Date.now();
-      // A paused element needs playable data from the new source before seeking.
-      element.preload = "auto";
-      element.src = `${source}?refresh=${lastRequest}`;
-      element.load();
+      resolving = true;
+      void getJson<{ url: string }>(`${source.slice(4)}?resolve=1`, {
+        signal: controller.signal,
+      })
+        .then(({ url }) => {
+          if (!live) return;
+          const address = new URL(url, location.origin);
+          if (
+            address.origin !== playbackOrigin &&
+            address.origin !== location.origin
+          )
+            throw new Error("播放域名与站点配置不匹配");
+          lastRequest = Date.now();
+          // A paused element needs playable data from the new source before seeking.
+          element.preload = "auto";
+          element.src = address.href;
+          element.load();
+        })
+        .catch(() => {
+          if (!live) return;
+          pendingTime = undefined;
+          setBlocked(true);
+        })
+        .finally(() => {
+          resolving = false;
+        });
       return true;
     };
     const seek = (time: number) => {
@@ -260,6 +287,7 @@ function Player({
     element.src = source;
     return () => {
       live = false;
+      controller.abort();
       retrySignedURL.current = undefined;
       seekSigned.current = undefined;
       element.removeEventListener("timeupdate", sample);
@@ -297,7 +325,8 @@ function Player({
     const element = ref.current;
     if (!element) return;
     wantsPlayback.current = true;
-    if (element.error && retrySignedURL.current?.()) return;
+    if ((!element.currentSrc || element.error) && retrySignedURL.current?.())
+      return;
     void element.play().then(
       () => setBlocked(false),
       () => setBlocked(true),

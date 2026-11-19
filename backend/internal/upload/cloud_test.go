@@ -273,3 +273,34 @@ func TestPlaybackSignsPublicHTTPSGetAndHead(t *testing.T) {
 		t.Fatal("staging playback signed")
 	}
 }
+
+func TestUploadCustomHTTPSOrigin(t *testing.T) {
+	cfg := CloudConfig{
+		Region: "cn-guangzhou", Bucket: "demo-bucket",
+		UploadRoleARN: "acs:ram::123456789:role/oss-upload",
+		AccessKeyID:   "test", AccessKeySecret: "test", ProbePath: "sh",
+		UploadEndpoint: "https://media.example.invalid",
+	}
+	cloud, err := NewAlibabaCloud(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cloud.(*alibabaCloud).endpoint != cfg.UploadEndpoint {
+		t.Fatal("STS grant must use the configured custom origin")
+	}
+	signed, err := cloud.Sign(context.Background(), testCoverAsset, http.MethodGet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(signed, cfg.UploadEndpoint+"/"+testCoverAsset+"?") {
+		t.Fatal("playback must default to the same custom origin")
+	}
+	cfg.UploadEndpoint = "https://oss-cn-guangzhou-internal.aliyuncs.com"
+	if _, err := NewAlibabaCloud(cfg); err == nil {
+		t.Fatal("browser must not receive an internal endpoint")
+	}
+	cfg.UploadEndpoint = "https://media.example.invalid/extra"
+	if _, err := NewAlibabaCloud(cfg); err == nil {
+		t.Fatal("browser endpoint must be an origin")
+	}
+}

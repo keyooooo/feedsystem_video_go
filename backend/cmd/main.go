@@ -106,7 +106,7 @@ func main() {
 				Region: os.Getenv("OSS_REGION"), Bucket: os.Getenv("OSS_BUCKET"),
 				UploadRoleARN: os.Getenv("OSS_UPLOAD_ROLE_ARN"),
 				AccessKeyID:   os.Getenv("OSS_ACCESS_KEY_ID"), AccessKeySecret: os.Getenv("OSS_ACCESS_KEY_SECRET"),
-				PlaybackEndpoint: os.Getenv("OSS_PLAYBACK_ENDPOINT"), ProbePath: os.Getenv("OSS_FFPROBE_PATH"),
+				UploadEndpoint: os.Getenv("OSS_UPLOAD_ENDPOINT"), PlaybackEndpoint: os.Getenv("OSS_PLAYBACK_ENDPOINT"), ProbePath: os.Getenv("OSS_FFPROBE_PATH"),
 			})
 			if err != nil {
 				log.Fatalf("OSS direct upload configuration: %v", err)

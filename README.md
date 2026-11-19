@@ -1,6 +1,6 @@
 # feedsystem_video_go
 
-基于 Go + Vue 3 的短视频 Feed 系统，含账号、视频、点赞、评论、关注、Feed 流、私信、通知，支持 Redis 缓存、RabbitMQ 异步 Worker、分片上传、SSE 实时推送、Docker Compose 部署。
+基于 Go + React 19 的短视频 Feed 系统，含账号、视频、点赞、评论、关注、Feed 流、私信、通知，支持 Redis 缓存、RabbitMQ 异步 Worker、分片上传、SSE 实时推送、Docker Compose 部署。
 
 ## 更完整的视频 Feed 流系统项目
 
@@ -71,7 +71,7 @@ npm install && npm run dev
 GitHub Actions 配置位于 `.github/workflows/ci.yml`，在 Pull Request 以及推送到 `main`、`master` 时运行。
 
 - 后端：Go 1.24.x，执行 `go mod download`、`go vet ./...`、`go test -race -count=1 ./...`
-- 前端：Node.js 22，执行 `npm ci`、`npm run build`
+- 前端：Node.js 24，执行依赖安装、lint、TypeScript、单元/组件测试、生产构建、Chromium/WebKit 回归以及 Nginx 镜像路由/API/Range 检查
 
 ## 接口清单
 

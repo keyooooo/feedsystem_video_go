@@ -1,5 +1,5 @@
 #
-# Multi-stage build for Vue (Vite) frontend, served by Nginx.
+# Multi-stage build for React (Vite) frontend, served by Nginx.
 #
 # Build:
 #   docker build -f frontend/Dockerfile -t feedsystem-frontend .
@@ -12,10 +12,12 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend/ ./
-RUN npm run build
+# Local environment and test credentials must not enter build layers.
+RUN test -z "$(find . -maxdepth 1 -name '*.local' -print)" && npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.30.7-alpine
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=build /src/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

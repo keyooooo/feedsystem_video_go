@@ -133,3 +133,60 @@ test.describe("production image security", () => {
     ).toBe(false);
   });
 });
+
+test.describe("direct upload production policy", () => {
+  const uploadOrigin = process.env.E2E_OSS_UPLOAD_ORIGIN;
+  const playbackOrigin = process.env.E2E_OSS_PLAYBACK_ORIGIN;
+  test.skip(
+    !uploadOrigin || !playbackOrigin,
+    "Requires the direct-upload Nginx image",
+  );
+
+  test("allows only the configured OSS connection and playback origins", async ({
+    page,
+    request,
+    baseURL,
+  }) => {
+    const response = await request.get("/video/1");
+    const policy = response.headers()["content-security-policy"];
+    expect(policy?.split(";").map((directive) => directive.trim())).toEqual(
+      expect.arrayContaining([
+        `connect-src 'self' ${uploadOrigin}`,
+        `img-src 'self' ${playbackOrigin} data: blob:`,
+        `media-src 'self' ${playbackOrigin} blob:`,
+      ]),
+    );
+    // Verify a real browser permits the OSS connection and rejects another origin
+    // before sending the same request. The approved destination is intercepted.
+    await page.route(`${uploadOrigin}/cors-probe`, (route) =>
+      route.fulfill({
+        body: "reachable",
+        headers: { "access-control-allow-origin": new URL(baseURL!).origin },
+      }),
+    );
+    await page.goto("/video/1");
+    const result = await page.evaluate(
+      async ({ allowed, blocked }) => {
+        const violations: { directive: string; uri: string }[] = [];
+        document.addEventListener("securitypolicyviolation", (event) => {
+          violations.push({
+            directive: event.effectiveDirective,
+            uri: event.blockedURI,
+          });
+        });
+        const response = await fetch(`${allowed}/cors-probe`);
+        await fetch(`${blocked}/cors-probe`).catch(() => null);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return {
+          allowed: await response.text(),
+          blocked: violations.some(
+            ({ directive, uri }) =>
+              directive === "connect-src" && uri.startsWith(blocked),
+          ),
+        };
+      },
+      { allowed: uploadOrigin!, blocked: "https://unapproved.example.invalid" },
+    );
+    expect(result).toEqual({ allowed: "reachable", blocked: true });
+  });
+});

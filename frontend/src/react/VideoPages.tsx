@@ -30,6 +30,7 @@ import {
   useNotice,
   useMedia,
 } from "./ui";
+import { mediaPath } from "./directUploadConfig";
 import s from "./App.module.css";
 export type FeedMode = "recommend" | "following" | "likes" | "hot";
 export type Cursor = {
@@ -125,7 +126,7 @@ export function Cover({ url, title }: { url: string; title: string }) {
   return url && !failed ? (
     <img
       className={s.cover}
-      src={url}
+      src={mediaPath(url)}
       alt={title}
       loading="lazy"
       onError={() => setFailed(true)}
@@ -183,16 +184,80 @@ function Player({
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [blocked, setBlocked] = useState(false);
+  const wantsPlayback = useRef(false);
+  const retrySignedURL = useRef<(() => boolean) | undefined>(undefined);
+  const source = mediaPath(item.play_url);
   useEffect(() => {
     const element = ref.current;
-    if (!element) return;
-    element.src = item.play_url;
+    if (!element || !source) return;
+    const signed = /^\/api\/media\/assets\/[a-f0-9]{32}$/.test(source);
+    let lastRequest = Date.now();
+    let refreshed = false;
+    let lastTime = 0;
+    let pendingTime: number | undefined;
+    let live = true;
+
+    const sample = () => {
+      if (pendingTime === undefined) lastTime = element.currentTime;
+    };
+    const retry = () => {
+      if (!signed || refreshed) return false;
+      refreshed = true;
+      pendingTime = element.currentTime || lastTime;
+      lastRequest = Date.now();
+      element.src = `${source}?refresh=${lastRequest}`;
+      return true;
+    };
+    const seek = () => {
+      // A new seek may use the old signed redirect target for its next Range request.
+      if (Date.now() - lastRequest < 14 * 60_000) return;
+      refreshed = false;
+      retry();
+    };
+    const error = () => {
+      if (!retry()) setBlocked(true);
+    };
+    const restore = () => {
+      if (pendingTime === undefined) return;
+      element.currentTime = Math.min(
+        pendingTime,
+        element.duration || pendingTime,
+      );
+      pendingTime = undefined;
+      if (wantsPlayback.current) {
+        void element.play().then(
+          () => {
+            if (live) setBlocked(false);
+          },
+          () => {
+            if (live) setBlocked(true);
+          },
+        );
+      }
+    };
+    if (signed) {
+      retrySignedURL.current = () => {
+        refreshed = false;
+        return retry();
+      };
+      element.addEventListener("timeupdate", sample);
+      element.addEventListener("seeking", seek);
+      element.addEventListener("error", error);
+      element.addEventListener("loadedmetadata", restore);
+    }
+    element.src = source;
     return () => {
+      live = false;
+      retrySignedURL.current = undefined;
+      element.removeEventListener("timeupdate", sample);
+      element.removeEventListener("seeking", seek);
+      element.removeEventListener("error", error);
+      element.removeEventListener("loadedmetadata", restore);
       element.pause();
       element.removeAttribute("src");
       element.load();
     };
-  }, [item.play_url]);
+  }, [source]);
   useEffect(() => {
     if (ref.current) ref.current.muted = muted;
   }, [muted]);
@@ -200,6 +265,7 @@ function Player({
     const element = ref.current;
     if (!element) return;
     let live = true;
+    wantsPlayback.current = active;
     if (active)
       void element
         .play()
@@ -214,7 +280,17 @@ function Player({
       live = false;
       element.pause();
     };
-  }, [item.play_url, active]);
+  }, [source, active]);
+  function play() {
+    const element = ref.current;
+    if (!element) return;
+    wantsPlayback.current = true;
+    if (element.error && retrySignedURL.current?.()) return;
+    void element.play().then(
+      () => setBlocked(false),
+      () => setBlocked(true),
+    );
+  }
   return (
     <>
       <video
@@ -222,21 +298,16 @@ function Player({
         playsInline
         loop
         muted={muted}
-        poster={item.cover_url}
+        poster={mediaPath(item.cover_url)}
         preload={active ? "metadata" : "none"}
         aria-label={item.title}
         onClick={() => {
-          const el = ref.current;
-          if (el) {
-            if (el.paused)
-              void el
-                .play()
-                .then(() => setBlocked(false))
-                .catch(() => setBlocked(true));
-            else {
-              el.pause();
-              setBlocked(true);
-            }
+          const element = ref.current;
+          if (element?.paused) play();
+          else if (element) {
+            wantsPlayback.current = false;
+            element.pause();
+            setBlocked(true);
           }
         }}
       />
@@ -244,12 +315,7 @@ function Player({
         <button
           className={s.primary}
           style={{ position: "absolute", top: "45%", left: "35%" }}
-          onClick={() =>
-            void ref.current
-              ?.play()
-              .then(() => setBlocked(false))
-              .catch(() => setBlocked(true))
-          }
+          onClick={play}
         >
           <Play size={18} /> 点击播放
         </button>

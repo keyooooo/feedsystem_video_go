@@ -1,3 +1,4 @@
+import { mediaPath } from "./directUploadConfig";
 import {
   useEffect,
   useRef,
@@ -38,7 +39,7 @@ export function Avatar({ name, url }: { name: string; url?: string }) {
   return (
     <span className={s.avatar}>
       {url && !failed ? (
-        <img src={url} alt="" onError={() => setFailed(true)} />
+        <img src={mediaPath(url)} alt="" onError={() => setFailed(true)} />
       ) : (
         name.slice(0, 1).toUpperCase()
       )}

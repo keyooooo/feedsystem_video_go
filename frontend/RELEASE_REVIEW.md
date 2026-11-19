@@ -3,6 +3,8 @@
 ## 结论与边界
 
 审查起点：`frontend_refactor:c506902`，后端与 Compose 基线为 `server_test:58a7c0c`。
+当前集成主线为 `origin/main`。下方分支和 SHA 用于追溯 React 重构当时的验收记录。OSS 直传接口、React 构建参数和 CORS 验收见 [OSS 直传 API](../backend/OSS_UPLOAD_API.md#react-接入与广州-bucket-配置)。
+
 本次目标是验证 React 版本并合并代码，不执行服务器部署，也不合并主工作区尚未提交的 OSS、后端和部署草稿。
 
 前端适合作为后续全栈开发的基础；合并门槛是修复后的源码检查、功能回归、真实接口联调及 GitHub Actions 生产镜像检查全部通过。实际通过记录见文末。

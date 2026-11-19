@@ -88,23 +88,28 @@ async function request<T>(
   body: unknown,
   form: boolean,
   options?: Options,
+  method = "POST",
 ): Promise<T> {
   const session = authSession.getState(),
     revision = session.revision;
   if (options?.authRequired && !session.token)
     throw new ApiError("请先登录", 401);
-  const headers: Record<string, string> = form
-    ? {}
-    : { "Content-Type": "application/json" };
+  const headers: Record<string, string> =
+    form || method === "GET" ? {} : { "Content-Type": "application/json" };
   let sentToken = session.token;
   if (sentToken) headers.Authorization = `Bearer ${sentToken}`;
   const send = () =>
     boundedFetch(
       `${base}${path}`,
       {
-        method: "POST",
+        method,
         headers,
-        body: form ? (body as FormData) : JSON.stringify(body ?? {}),
+        body:
+          method === "GET"
+            ? undefined
+            : form
+              ? (body as FormData)
+              : JSON.stringify(body ?? {}),
         signal: options?.signal,
       },
       options?.timeoutMs ?? (form ? 120000 : 30000),
@@ -117,6 +122,9 @@ async function request<T>(
     const current = authSession.getState().token;
     const token = current && current !== sentToken ? current : await refresh();
     if (token) {
+      options?.signal?.throwIfAborted();
+      if (authSession.getState().revision !== revision)
+        throw new ApiError("会话已改变，请重试", 409);
       sentToken = token;
       headers.Authorization = `Bearer ${token}`;
       ({ response: res, text } = await send());
@@ -147,3 +155,6 @@ export const postJson = <T>(path: string, body: unknown, options?: Options) =>
   request<T>(path, body, false, options);
 export const postForm = <T>(path: string, body: FormData, options?: Options) =>
   request<T>(path, body, true, options);
+
+export const getJson = <T>(path: string, options?: Options) =>
+  request<T>(path, undefined, false, options, "GET");

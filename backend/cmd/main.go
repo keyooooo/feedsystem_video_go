@@ -8,6 +8,7 @@ import (
 	rabbitmq "feedsystem_video_go/internal/middleware/rabbitmq"
 	rediscache "feedsystem_video_go/internal/middleware/redis"
 	"feedsystem_video_go/internal/observability"
+	"feedsystem_video_go/internal/upload"
 	"log"
 	"os"
 	"strconv"
@@ -91,7 +92,30 @@ func main() {
 	}
 
 	// 设置路由
-	r := apphttp.SetRouter(sqlDB, cache, rmq)
+	var uploads *upload.Service
+	if enabled := os.Getenv("OSS_DIRECT_UPLOAD"); enabled != "" {
+		direct, err := strconv.ParseBool(enabled)
+		if err != nil {
+			log.Fatal("invalid OSS_DIRECT_UPLOAD flag")
+		}
+		if direct {
+			if cache == nil {
+				log.Fatal("OSS direct upload requires Redis")
+			}
+			cloud, err := upload.NewAlibabaCloud(upload.CloudConfig{
+				Region: os.Getenv("OSS_REGION"), Bucket: os.Getenv("OSS_BUCKET"),
+				UploadRoleARN: os.Getenv("OSS_UPLOAD_ROLE_ARN"),
+				AccessKeyID:   os.Getenv("OSS_ACCESS_KEY_ID"), AccessKeySecret: os.Getenv("OSS_ACCESS_KEY_SECRET"),
+				PlaybackEndpoint: os.Getenv("OSS_PLAYBACK_ENDPOINT"), ProbePath: os.Getenv("OSS_FFPROBE_PATH"),
+			})
+			if err != nil {
+				log.Fatalf("OSS direct upload configuration: %v", err)
+			}
+			uploads = upload.NewService(sqlDB, cloud)
+			uploads.StartCleanup(context.Background())
+		}
+	}
+	r := apphttp.SetRouter(sqlDB, cache, rmq, uploads)
 	log.Printf("Server is running on port %d", cfg.Server.Port)
 	if err := r.Run(":" + strconv.Itoa(cfg.Server.Port)); err != nil {
 		log.Fatalf("Failed to run server: %v", err)

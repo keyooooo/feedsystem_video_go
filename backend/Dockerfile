@@ -47,6 +47,9 @@ RUN mkdir -p ./.run/uploads && chown -R app:app /app
 USER app
 
 FROM base AS api
+USER root
+RUN apk add --no-cache ffmpeg
+USER app
 COPY --from=api-build /out/api /app/api
 EXPOSE 8080
 ENTRYPOINT ["/app/api"]

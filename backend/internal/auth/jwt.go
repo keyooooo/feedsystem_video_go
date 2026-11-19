@@ -7,31 +7,24 @@ import (
 	"errors"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var cachedSecret []byte
-
-func jwtSecret() []byte {
-	if cachedSecret != nil {
-		return cachedSecret
-	}
+var jwtSecret = sync.OnceValue(func() []byte {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		b := make([]byte, 32)
 		if _, err := rand.Read(b); err != nil {
-			log.Printf("FATAL: cannot generate JWT secret: %v", err)
-			cachedSecret = []byte("fallback-unsafe-key-change-me")
-			return cachedSecret
+			log.Fatal("could not generate JWT key")
 		}
 		secret = hex.EncodeToString(b)
 		log.Printf("WARNING: JWT_SECRET not set, generated random key. All tokens invalid on restart.")
 	}
-	cachedSecret = []byte(secret)
-	return cachedSecret
-}
+	return []byte(secret)
+})
 
 type Claims struct {
 	AccountID uint   `json:"account_id"`
@@ -41,11 +34,16 @@ type Claims struct {
 
 func GenerateToken(accountID uint, username string) (string, error) {
 	now := time.Now()
+	jti, err := GenerateRefreshToken(accountID)
+	if err != nil {
+		return "", err
+	}
 
 	claims := Claims{
 		AccountID: accountID,
 		Username:  username,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        jti,
 			ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),

@@ -1,3 +1,5 @@
+import { resumeCookieSession } from "../api/client";
+import { secureSessions } from "../session/auth";
 import { StrictMode, Component, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
@@ -35,10 +37,19 @@ const router = createBrowserRouter([
     ),
   },
 ]);
-createRoot(document.getElementById("app")!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <RouterProvider router={router} />
-    </ErrorBoundary>
-  </StrictMode>,
-);
+const root = createRoot(document.getElementById("app")!);
+const mount = () =>
+  root.render(
+    <StrictMode>
+      <ErrorBoundary>
+        <RouterProvider router={router} />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+
+if (secureSessions) {
+  root.render(<main role="status">正在连接…</main>);
+  void resumeCookieSession().finally(mount);
+} else {
+  mount();
+}

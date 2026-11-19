@@ -16,10 +16,10 @@
 
 ```bash
 git rev-parse HEAD
-deploy/build-images.sh true https://media.example.com https://media.example.com
+RELEASE_SECURE_SESSIONS=true deploy/build-images.sh true https://media.example.com https://media.example.com
 ```
 
-构建参数只接受公开的 OSS Origin。验证基础部署时可用 `deploy/build-images.sh false`，同时在回环预发布环境设置 `OSS_DIRECT_UPLOAD=false`。真实 OSS 直传验收使用两个开关均启用的镜像和配置。
+构建参数只接受公开的 OSS Origin。验证基础部署时可用 `deploy/build-images.sh false`，同时在回环预发布环境设置 `OSS_DIRECT_UPLOAD=false`。真实 OSS 直传验收使用前端和后端都启用直传的镜像和配置。公开 HTTPS 入口使用带 `-cookie` 后缀的 React 镜像，Compose 从 `FEEDSYSTEM_PUBLIC_HOST` 生成同源会话地址。启用后旧会话需要重新登录。回环 HTTP 验收沿用旧会话协议。
 
 将 `deploy/.env.production.example` 复制到源码目录之外，例如 `~/.config/feedsystem/release.env`。目录权限设为 `700`，文件权限设为 `600`。在服务器上使用 `openssl rand -hex 32` 为 MySQL root、MySQL 应用账号、Redis、RabbitMQ 和 JWT 分别生成密钥。业务容器使用独立的 MySQL 用户。更新镜像时保留上一版镜像与环境文件。
 
@@ -76,8 +76,8 @@ ssh -N -L 15174:127.0.0.1:15174 admin@8.134.84.151
 | 阻断项 | 公开切换前的验收 |
 | --- | --- |
 | 入口和代理 | 域名、证书链、重定向、HSTS、Host、登录、上传、Range、SSH 和防火墙来源。确认旧 8080 的使用方已迁移，再关闭公网暴露。 |
-| 会话 | 完成独立 `codex/session-hardening` 修改及联调，验证安全 Cookie、CSRF、过期、轮换、撤销、换号和重启。 |
+| 会话 | 使用安全会话镜像和正式 HTTPS 入口，验收安全 Cookie、CSRF、过期、轮换、撤销、换号和重启。 |
 | OSS | 使用真实 Bucket 验证私有权限、同地域内网校验、续期、隔离和取消、浏览器 CORS、范围请求及移动 Safari。 |
 | 密钥和容量 | 验证旧密钥和旧会话失效，检查监听端口与容器实际配置。完成 Go 依赖与最终镜像扫描、备份恢复、容量和回滚演练，并配置磁盘、内存、依赖就绪、队列积压、5xx 和 OSS 用量告警。 |
 
-公开切流前先暂停旧入口写入，做最终快照并验收增量数据。回滚优先将入口恢复到上一个已验收的 HTTPS 版本，使用保留的 Compose 配置、镜像和数据卷。停用新入口只影响该发布项目的前端容器。存在不兼容数据库变更时，先导出新库和新增上传，恢复到独立项目后再切入口；保留两个版本的数据仓并核对切流期间写入。旧服务及旧卷保留供恢复。切流和回滚都验证登录、已有视频、Range 以及对外端口。
+公开切流前先暂停旧入口写入，做最终快照并验收增量数据。回滚优先将入口恢复到上一个已验收的 HTTPS 版本，成对恢复 API 与 React 镜像和 Compose 配置。会话协议发生变化时，用户重新登录。停用新入口只影响该发布项目的前端容器。存在不兼容数据库变更时，先导出新库和新增上传，恢复到独立项目后再切入口；保留两个版本的数据仓并核对切流期间写入。旧服务及旧卷保留供恢复。切流和回滚都验证登录、已有视频、Range 以及对外端口。

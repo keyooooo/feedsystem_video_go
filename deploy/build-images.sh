@@ -11,6 +11,11 @@ fi
 direct=${1:?usage: build-images.sh true|false [upload-origin] [playback-origin]}
 upload_origin=${2:-}
 playback_origin=${3:-$upload_origin}
+secure_sessions=${RELEASE_SECURE_SESSIONS:-false}
+case "$secure_sessions" in
+  true|false) ;;
+  *) printf '%s\n' 'RELEASE_SECURE_SESSIONS must be true or false' >&2; exit 2 ;;
+esac
 case "$direct" in
   true) test -n "$upload_origin"; mode=direct ;;
   false) mode=legacy ;;
@@ -31,8 +36,12 @@ if [ "$mode" = direct ]; then
   origin_fingerprint="$(printf '%s\n' "$upload_origin" "$playback_origin" | sha256sum)"
   mode="direct-${origin_fingerprint:0:12}"
 fi
+if [ "$secure_sessions" = true ]; then
+  mode="$mode-cookie"
+fi
 frontend="feedsystem-frontend:$revision-$mode"
 docker build --label "$repo_label" -f frontend/Dockerfile \
+  --build-arg "VITE_SECURE_SESSIONS=$secure_sessions" \
   --build-arg "VITE_OSS_DIRECT_UPLOAD=$direct" \
   --build-arg "VITE_OSS_UPLOAD_ORIGIN=$upload_origin" \
   --build-arg "VITE_OSS_PLAYBACK_ORIGIN=$playback_origin" \

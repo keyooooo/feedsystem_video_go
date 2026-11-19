@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"feedsystem_video_go/internal/auth"
 	"feedsystem_video_go/internal/config"
 	"feedsystem_video_go/internal/db"
 	apphttp "feedsystem_video_go/internal/http"
@@ -27,6 +28,10 @@ func main() {
 	// 加载 .env（本地开发）
 	if err := godotenv.Load(); err != nil {
 		log.Println(".env not found; continuing")
+	}
+
+	if err := auth.ValidateCookieOrigin(); err != nil {
+		log.Fatal(err)
 	}
 
 	// 加载配置

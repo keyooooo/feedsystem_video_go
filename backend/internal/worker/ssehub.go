@@ -115,13 +115,15 @@ func (h *SSEHub) SSEHandler(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	flusher, _ := c.Writer.(http.Flusher)
+	value, _ := c.Get(auth.LiveSessionCheck)
+	sessionValid, _ := value.(func() bool)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case n, ok := <-ch:
-			if !ok {
+			if !ok || (sessionValid != nil && !sessionValid()) {
 				return
 			}
 			b, _ := json.Marshal(n)
@@ -130,6 +132,9 @@ func (h *SSEHub) SSEHandler(c *gin.Context) {
 				flusher.Flush()
 			}
 		case <-time.After(30 * time.Second):
+			if sessionValid != nil && !sessionValid() {
+				return
+			}
 			fmt.Fprintf(c.Writer, ": keepalive\n\n")
 			if flusher != nil {
 				flusher.Flush()

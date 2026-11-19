@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"feedsystem_video_go/internal/apierror"
+	"feedsystem_video_go/internal/auth"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -52,8 +53,18 @@ func (h *AccountHandler) Rename(c *gin.Context) {
 		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})
 		return
 	}
-	token, err := h.accountService.Rename(c.Request.Context(), accountID, req.NewUsername)
+	var token string
+	if auth.CookieOrigin() != "" {
+		_, bearer, _ := strings.Cut(c.GetHeader("Authorization"), " ")
+		token, err = h.accountService.renameCookie(c.Request.Context(), accountID, bearer, req.NewUsername)
+	} else {
+		token, err = h.accountService.Rename(c.Request.Context(), accountID, req.NewUsername)
+	}
 	if err != nil {
+		if errors.Is(err, errInvalidSession) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "session was replaced"})
+			return
+		}
 		if errors.Is(err, ErrNewUsernameRequired) {
 			c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})
 			return
@@ -73,6 +84,9 @@ func (h *AccountHandler) Rename(c *gin.Context) {
 }
 
 func (h *AccountHandler) ChangePassword(c *gin.Context) {
+	if auth.CookieOrigin() != "" && !acceptSessionOrigin(c) {
+		return
+	}
 	var req ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})
@@ -122,9 +136,17 @@ func (h *AccountHandler) FindByUsername(c *gin.Context) {
 }
 
 func (h *AccountHandler) Login(c *gin.Context) {
+	secure := auth.CookieOrigin() != ""
+	if secure && !acceptSessionOrigin(c) {
+		return
+	}
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+	if secure {
+		h.loginCookie(c, req)
 		return
 	}
 	account, err := h.accountService.FindByUsername(c.Request.Context(), req.Username)
@@ -220,6 +242,12 @@ func (h *AccountHandler) UpdateProfile(c *gin.Context) {
 }
 
 func (h *AccountHandler) Refresh(c *gin.Context) {
+	if auth.CookieOrigin() != "" {
+		if acceptSessionOrigin(c) {
+			h.refreshCookie(c)
+		}
+		return
+	}
 	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})

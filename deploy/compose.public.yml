@@ -1,6 +1,7 @@
 services:
   backend:
     environment:
+      SESSION_COOKIE_ORIGIN: https://${FEEDSYSTEM_PUBLIC_HOST:?set the verified HTTPS domain}
       OSS_DIRECT_UPLOAD: "true"
       OSS_REGION: ${OSS_REGION:?set the OSS region}
       OSS_BUCKET: ${OSS_BUCKET:?set the private OSS bucket}

@@ -1,0 +1,22 @@
+services:
+  backend:
+    environment:
+      OSS_DIRECT_UPLOAD: "true"
+      OSS_REGION: ${OSS_REGION:?set the OSS region}
+      OSS_BUCKET: ${OSS_BUCKET:?set the private OSS bucket}
+      OSS_UPLOAD_ROLE_ARN: ${OSS_UPLOAD_ROLE_ARN:?set the upload RAM role ARN}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:?set the server RAM AccessKey ID}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:?set the server RAM AccessKey secret}
+      OSS_UPLOAD_ENDPOINT: ${OSS_UPLOAD_ENDPOINT:?set the bound HTTPS OSS upload origin}
+  frontend:
+    ports: !override
+      - "80:80"
+      - "443:443"
+    environment:
+      FEEDSYSTEM_PUBLIC_HOST: ${FEEDSYSTEM_PUBLIC_HOST:?set the verified HTTPS domain}
+      NGINX_ENVSUBST_FILTER: '^FEEDSYSTEM_PUBLIC_HOST$'
+    volumes:
+      - ./deploy/nginx-public.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${TLS_DIR:-/etc/letsencrypt}:/etc/letsencrypt:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/readyz"]

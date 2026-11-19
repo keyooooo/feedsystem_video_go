@@ -6,7 +6,10 @@ const items = Array.from({ length: 12 }, (_, i) => ({
   author: { id: 2, username: "摄影日记" },
   title: `城市里的光 ${i + 1}`,
   description: "让每个日常，都成为值得记录的片刻。",
-  play_url: "/static/fixture.mp4",
+  play_url:
+    i === 0
+      ? "http://legacy.example.invalid/static/fixture.mp4"
+      : "/static/fixture.mp4",
   cover_url: "/static/poster.png",
   likes_count: i + 10,
   is_liked: false,
@@ -331,6 +334,7 @@ test("muting preserves the playhead and a user-paused video", async ({
 }) => {
   await page.goto("/");
   const video = page.locator("video").first();
+  await expect(video).toHaveAttribute("src", "/static/fixture.mp4");
   await expect
     .poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
     .toBeGreaterThan(0.1);

@@ -7,7 +7,7 @@
 #   docker build -f backend/Dockerfile -t feedsystem-backend:worker --target worker .
 #
 
-ARG GO_VERSION=1.24.5
+ARG GO_VERSION=1.26.11
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
 
@@ -39,7 +39,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker
 
-FROM alpine:3.21 AS base
+FROM alpine:3.24.4 AS base
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -s /sbin/nologin app
 WORKDIR /app
 COPY --from=source /src/backend/configs ./configs

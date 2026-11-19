@@ -22,8 +22,27 @@ func Limit(
 	window time.Duration,
 	keyFunc KeyFunc,
 ) gin.HandlerFunc {
+	return middleware(cache, keyPrefix, maxRequests, window, keyFunc, false)
+}
+
+func LimitStrict(cache *rediscache.Client, keyPrefix string, maxRequests int64, window time.Duration, keyFunc KeyFunc) gin.HandlerFunc {
+	return middleware(cache, keyPrefix, maxRequests, window, keyFunc, true)
+}
+
+func middleware(cache *rediscache.Client, keyPrefix string, maxRequests int64, window time.Duration, keyFunc KeyFunc, strict bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if cache == nil || keyFunc == nil || maxRequests <= 0 || window <= 0 {
+		unavailable := func() {
+			if strict {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "rate limit unavailable"})
+			} else {
+				c.Next()
+			}
+		}
+		if cache == nil {
+			unavailable()
+			return
+		}
+		if keyFunc == nil || maxRequests <= 0 || window <= 0 {
 			c.Next()
 			return
 		}
@@ -34,9 +53,8 @@ func Limit(
 		}
 		key := buildKey(keyPrefix, subject)
 		count, err := cache.IncrementWithExpire(c.Request.Context(), key, window)
-		// redis 错误，限流失败，允许请求通过fail-open
 		if err != nil {
-			c.Next()
+			unavailable()
 			return
 		}
 		if count > maxRequests {

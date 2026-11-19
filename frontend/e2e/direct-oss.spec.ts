@@ -424,28 +424,39 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
   );
   const ranges: string[] = [];
   const refresh: boolean[] = [];
-  await page.route(`**${stablePath}*`, (route) => {
-    const request = route.request();
-    const range = request.headers()["range"] || "";
-    const [, left, right] = range.match(/^bytes=(\d+)-(\d*)$/) ?? [];
-    refresh.push(new URL(request.url()).searchParams.has("refresh"));
-    if (range) ranges.push(range);
-    const start = left ? Number(left) : 0;
-    const end = right
-      ? Math.min(Number(right), clip.length - 1)
-      : clip.length - 1;
-    return route.fulfill({
-      status: left ? 206 : 200,
-      body: clip.subarray(start, end + 1),
-      headers: {
-        "Content-Type": "video/mp4",
-        "Accept-Ranges": "bytes",
-        ...(left
-          ? { "Content-Range": `bytes ${start}-${end}/${clip.length}` }
-          : {}),
-      },
+  if (process.env.E2E_BASE_URL) {
+    // Exercise the production Nginx proxy and a real HTTP redirect/206 response.
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === stablePath)
+        refresh.push(url.searchParams.has("refresh"));
+      const range = request.headers()["range"];
+      if (url.pathname === "/static/clip.mp4" && range) ranges.push(range);
     });
-  });
+  } else {
+    await page.route(`**${stablePath}*`, (route) => {
+      const request = route.request();
+      const range = request.headers()["range"] || "";
+      const [, left, right] = range.match(/^bytes=(\d+)-(\d*)$/) ?? [];
+      refresh.push(new URL(request.url()).searchParams.has("refresh"));
+      if (range) ranges.push(range);
+      const start = left ? Number(left) : 0;
+      const end = right
+        ? Math.min(Number(right), clip.length - 1)
+        : clip.length - 1;
+      return route.fulfill({
+        status: left ? 206 : 200,
+        body: clip.subarray(start, end + 1),
+        headers: {
+          "Content-Type": "video/mp4",
+          "Accept-Ranges": "bytes",
+          ...(left
+            ? { "Content-Range": `bytes ${start}-${end}/${clip.length}` }
+            : {}),
+        },
+      });
+    });
+  }
   await page.goto("/video/97");
   const player = page.getByLabel("签名播放", { exact: true });
   await expect
@@ -457,6 +468,22 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
     .poll(() => player.evaluate((video: HTMLVideoElement) => video.paused))
     .toBe(true);
   const seek = await player.evaluate((video: HTMLVideoElement) => {
+    const states: string[] = [];
+    Object.assign(video, { mediaStates: states });
+    for (const name of [
+      "loadstart",
+      "loadedmetadata",
+      "seeking",
+      "seeked",
+      "canplay",
+      "error",
+    ]) {
+      video.addEventListener(name, () => {
+        states.push(
+          `${name} time=${video.currentTime} ready=${video.readyState} error=${video.error?.code ?? 0}`,
+        );
+      });
+    }
     const now = Date.now();
     Date.now = () => now + 16 * 60_000;
     return Number((video.duration / 2).toFixed(2));
@@ -465,7 +492,14 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
   await expect.poll(() => refresh.includes(true)).toBe(true);
   await expect
     .poll(() => player.evaluate((video: HTMLVideoElement) => video.currentTime))
-    .toBeCloseTo(seek, 1);
+    .toBeCloseTo(seek, 1)
+    .catch(async (error: unknown) => {
+      console.error(
+        "Media recovery events",
+        await player.evaluate((video) => Reflect.get(video, "mediaStates")),
+      );
+      throw error;
+    });
   expect(await player.evaluate((video: HTMLVideoElement) => video.paused)).toBe(
     true,
   );

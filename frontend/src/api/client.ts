@@ -1,4 +1,10 @@
-import { authSession } from "../session/auth";
+import {
+  authSession,
+  cookieResumeAllowed,
+  secureSessions,
+  withCookieLock,
+} from "../session/auth";
+import { decodeJwtPayload } from "../utils/jwt";
 export class ApiError extends Error {
   constructor(message: string, status: number, payload?: unknown) {
     super(message);
@@ -28,7 +34,11 @@ async function boundedFetch(url: string, init: RequestInit, timeoutMs: number) {
   init.signal?.addEventListener("abort", abort, { once: true });
   if (init.signal?.aborted) abort();
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, {
+      ...init,
+      credentials: "same-origin",
+      signal: controller.signal,
+    });
     // Keep the deadline active while reading the body, not just until headers arrive.
     const text = await response.text();
     return { response, text };
@@ -43,17 +53,25 @@ async function boundedFetch(url: string, init: RequestInit, timeoutMs: number) {
 }
 async function refresh() {
   const session = authSession.getState();
-  if (!session.refreshToken) return null;
+  if (secureSessions ? !cookieResumeAllowed() : !session.refreshToken)
+    return null;
   if (pending?.revision === session.revision) return pending.promise;
   const revision = session.revision;
-  const promise = (async () => {
+  const promise = withCookieLock(async () => {
     try {
+      if (
+        authSession.getState().revision !== revision ||
+        (secureSessions && !cookieResumeAllowed())
+      )
+        return null;
       const { response: res, text } = await boundedFetch(
         `${base}/account/refresh`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: session.refreshToken }),
+          body: JSON.stringify(
+            secureSessions ? {} : { refresh_token: session.refreshToken },
+          ),
         },
         10000,
       );
@@ -74,15 +92,26 @@ async function refresh() {
       if (authSession.getState().revision !== revision) return null;
       if (!data || typeof data.token !== "string" || !data.token)
         throw new ApiError("登录续期响应无效，请稍后重试", 502);
+      const previous = decodeJwtPayload(session.token ?? "")?.account_id;
+      const next = decodeJwtPayload(data.token)?.account_id;
+      if (secureSessions && previous && previous !== next) {
+        authSession.getState().setTokens(data.token, "");
+        return null;
+      }
       authSession.getState().setToken(data.token);
-      return data.token as string;
+      return data.token;
     } finally {
       if (pending?.revision === revision) pending = null;
     }
-  })();
+  });
   pending = { revision, promise };
   return promise;
 }
+export async function resumeCookieSession() {
+  if (!secureSessions || !cookieResumeAllowed()) return;
+  await refresh().catch(() => null);
+}
+
 async function request<T>(
   path: string,
   body: unknown,
@@ -115,7 +144,12 @@ async function request<T>(
       options?.timeoutMs ?? (form ? 120000 : 30000),
     );
   let { response: res, text } = await send();
-  if (res.status === 401 && path !== "/account/refresh") {
+  const cookieAction =
+    secureSessions &&
+    ["/account/login", "/account/logout", "/account/changePassword"].includes(
+      path,
+    );
+  if (res.status === 401 && path !== "/account/refresh" && !cookieAction) {
     if (authSession.getState().revision !== revision)
       throw new ApiError("会话已改变，请重试", 409);
     options?.signal?.throwIfAborted();
@@ -139,7 +173,11 @@ async function request<T>(
   if (authSession.getState().revision !== revision)
     throw new ApiError("会话已改变，请重试", 409);
   if (!res.ok) {
-    if (res.status === 401 && authSession.getState().token === sentToken)
+    if (
+      res.status === 401 &&
+      !cookieAction &&
+      authSession.getState().token === sentToken
+    )
       authSession.getState().clearTokens();
     throw new ApiError(
       typeof data === "object" && data && "error" in data

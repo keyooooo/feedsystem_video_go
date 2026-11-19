@@ -6,7 +6,11 @@ import { postJson } from "../api/client";
 import { cancelUpload, directUploadEnabled } from "./directUploadConfig";
 import type { createDirectUploadRun } from "./directUpload";
 import type { UploadProgress } from "./upload";
-import { authSession } from "../session/auth";
+import {
+  authSession,
+  markExplicitLogout,
+  secureSessions,
+} from "../session/auth";
 import {
   useSession,
   useIdentity,
@@ -68,8 +72,11 @@ export function AuthPage({
         navigate("/account");
       } else {
         const result = await account.login(username, pass);
-        if (!result.refresh_token) throw new Error("登录响应缺少续期信息");
-        authSession.getState().setTokens(result.token, result.refresh_token);
+        if (!secureSessions && !result.refresh_token)
+          throw new Error("登录响应缺少续期信息");
+        authSession
+          .getState()
+          .setTokens(result.token, result.refresh_token ?? "");
         navigate(safeRedirect(query.get("redirect")), { replace: true });
       }
     } catch (e) {
@@ -230,6 +237,7 @@ export function Settings() {
   async function logout() {
     if (loggingOut) return;
     setLoggingOut(true);
+    markExplicitLogout();
     try {
       await account.logout();
       show("已退出登录");

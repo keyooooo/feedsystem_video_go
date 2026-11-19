@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 const external = process.env.E2E_BASE_URL;
 const direct = process.env.E2E_OSS_UPLOAD_ORIGIN;
+const secure = process.env.E2E_SECURE_SESSIONS === "1";
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -15,10 +16,13 @@ export default defineConfig({
     : {
         command: "npm run dev -- --port 4173",
         url: "http://127.0.0.1:4173",
-        reuseExistingServer: !process.env.CI && !direct,
-        env: direct
-          ? { VITE_OSS_DIRECT_UPLOAD: "true", VITE_OSS_UPLOAD_ORIGIN: direct }
-          : undefined,
+        reuseExistingServer: !process.env.CI && !direct && !secure,
+        env: {
+          ...(direct
+            ? { VITE_OSS_DIRECT_UPLOAD: "true", VITE_OSS_UPLOAD_ORIGIN: direct }
+            : {}),
+          ...(secure ? { VITE_SECURE_SESSIONS: "true" } : {}),
+        },
       },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },

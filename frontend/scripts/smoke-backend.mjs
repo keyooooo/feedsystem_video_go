@@ -1,6 +1,11 @@
 import http from "node:http";
 import { readFileSync } from "node:fs";
-const clip = readFileSync(process.env.SMOKE_CLIP_FILE || "/fixtures/clip.mp4");
+import { dirname, join } from "node:path";
+const clipFile = process.env.SMOKE_CLIP_FILE || "/fixtures/clip.mp4";
+const clips = {
+  "/static/clip.mp4": readFileSync(clipFile),
+  "/static/seek.mp4": readFileSync(join(dirname(clipFile), "seek.mp4")),
+};
 http
   .createServer((req, res) => {
     const url = new URL(req.url, "http://localhost");
@@ -12,13 +17,14 @@ http
     if (/^\/media\/assets\/[a-f0-9]{32}$/.test(url.pathname)) {
       const refresh = url.searchParams.has("refresh") ? "fresh" : "initial";
       res.writeHead(307, {
-        Location: `/static/clip.mp4?mock-signature=${refresh}`,
+        Location: `/static/seek.mp4?mock-signature=${refresh}`,
         "Cache-Control": "no-store",
       });
       res.end();
       return;
     }
-    if (url.pathname === "/static/clip.mp4") {
+    const clip = clips[url.pathname];
+    if (Buffer.isBuffer(clip)) {
       const match = req.headers.range?.match(/bytes=(\d+)-(\d*)/);
       const start = match ? Number(match[1]) : 0,
         end = match?.[2]

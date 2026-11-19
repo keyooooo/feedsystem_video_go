@@ -403,6 +403,7 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
       },
     });
   });
+  const clip = readFileSync(new URL("./fixtures/seek.mp4", import.meta.url));
   const stablePath = `/api/media/assets/${ids.video}`;
   await page.route("**/api/video/getDetail", (route) =>
     route.fulfill({
@@ -431,7 +432,7 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
       if (url.pathname === stablePath)
         refresh.push(url.searchParams.has("refresh"));
       const range = request.headers()["range"];
-      if (url.pathname === "/static/clip.mp4" && range) ranges.push(range);
+      if (url.pathname === "/static/seek.mp4" && range) ranges.push(range);
     });
   } else {
     await page.route(`**${stablePath}*`, (route) => {
@@ -480,7 +481,7 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
     ]) {
       video.addEventListener(name, () => {
         states.push(
-          `${name} time=${video.currentTime} ready=${video.readyState} error=${video.error?.code ?? 0}`,
+          `${name} time=${video.currentTime} ready=${video.readyState} seekable=${video.seekable.length} error=${video.error?.code ?? 0}`,
         );
       });
     }

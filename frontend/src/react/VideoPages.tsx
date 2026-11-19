@@ -211,9 +211,9 @@ function Player({
       refreshed = true;
       pendingTime = time;
       lastRequest = Date.now();
-      // Let the media engine request bytes around the target on its first load.
+      // A paused element needs playable data from the new source before seeking.
       element.preload = "auto";
-      element.src = `${source}?refresh=${lastRequest}#t=${time}`;
+      element.src = `${source}?refresh=${lastRequest}`;
       element.load();
       return true;
     };
@@ -234,8 +234,7 @@ function Player({
       // WebKit may reset a seek made at loadedmetadata while it opens the new source.
       const time = Math.min(pendingTime, element.duration || pendingTime);
       pendingTime = undefined;
-      if (Math.abs(element.currentTime - time) > 0.02)
-        element.currentTime = time;
+      if (time > 0) element.currentTime = time;
       setPosition(time);
       if (wantsPlayback.current) {
         void element.play().then(

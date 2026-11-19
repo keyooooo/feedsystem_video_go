@@ -4,3 +4,6 @@
 **/.run
 **/*.log
 npm-debug.log*
+**/*.pem
+**/*.key
+**/backups

@@ -1,0 +1,162 @@
+x-runtime: &runtime
+  restart: unless-stopped
+  init: true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-app-environment: &app-environment
+  CONFIG_PATH: /app/configs/config.production.yaml
+  FEEDSYSTEM_PRODUCTION: "true"
+  MYSQL_DATABASE: feedsystem
+  MYSQL_USER: feedsystem_app
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+  RABBITMQ_USER: feedsystem_app
+  RABBITMQ_PASS: ${RABBITMQ_PASS:?set RABBITMQ_PASS}
+
+x-app-dependencies: &app-dependencies
+  mysql:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  rabbitmq:
+    condition: service_healthy
+
+services:
+  mysql:
+    <<: *runtime
+    image: ${MYSQL_IMAGE:?set a pinned MySQL 8.0 image}
+    environment:
+      MYSQL_DATABASE: feedsystem
+      MYSQL_USER: feedsystem_app
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+      - --max-connections=80
+    mem_limit: 460m
+    healthcheck:
+      test: ["CMD-SHELL", 'MYSQL_PWD="$${MYSQL_PASSWORD}" mysql -h 127.0.0.1 -u feedsystem_app feedsystem -Nse "SELECT 1" >/dev/null']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    <<: *runtime
+    image: ${REDIS_IMAGE:?set a pinned Redis image}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    command: ["sh", "-ec", 'exec redis-server --appendonly yes --maxmemory 64mb --maxmemory-policy noeviction --requirepass "$${REDIS_PASSWORD}"']
+    volumes:
+      - redis_data:/data
+    mem_limit: 112m
+    healthcheck:
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping | grep -qx PONG']
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  rabbitmq:
+    <<: *runtime
+    image: ${RABBITMQ_IMAGE:?set a pinned RabbitMQ image}
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: feedsystem_app
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?set RABBITMQ_PASS}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: +S 2:2
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./deploy/rabbitmq.conf:/etc/rabbitmq/conf.d/90-feedsystem.conf:ro
+    mem_limit: 320m
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 30s
+      timeout: 10s
+      retries: 8
+
+  backend:
+    <<: *runtime
+    image: ${API_IMAGE:?set the release API image}
+    pull_policy: never
+    environment:
+      <<: *app-environment
+      GIN_MODE: release
+      GOMEMLIMIT: 180MiB
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      APP_TRUSTED_PROXY: ${FRONTEND_PROXY_IP:-172.29.63.2}
+      OSS_DIRECT_UPLOAD: ${OSS_DIRECT_UPLOAD:-true}
+      OSS_REGION: ${OSS_REGION:-}
+      OSS_BUCKET: ${OSS_BUCKET:-}
+      OSS_UPLOAD_ROLE_ARN: ${OSS_UPLOAD_ROLE_ARN:-}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
+      OSS_UPLOAD_ENDPOINT: ${OSS_UPLOAD_ENDPOINT:-}
+      OSS_PLAYBACK_ENDPOINT: ${OSS_PLAYBACK_ENDPOINT:-}
+    volumes:
+      - backend_uploads:/app/.run/uploads
+    mem_limit: 260m
+    stop_grace_period: 20s
+    depends_on: *app-dependencies
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    <<: *runtime
+    image: ${WORKER_IMAGE:?set the release Worker image}
+    pull_policy: never
+    environment:
+      <<: *app-environment
+      GOMEMLIMIT: 90MiB
+    mem_limit: 150m
+    stop_grace_period: 30s
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pidof", "worker"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    <<: *runtime
+    image: ${FRONTEND_IMAGE:?set the release React image}
+    pull_policy: never
+    ports:
+      - "127.0.0.1:${PREVIEW_PORT:-15174}:80"
+    networks:
+      default:
+        ipv4_address: ${FRONTEND_PROXY_IP:-172.29.63.2}
+    mem_limit: 64m
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/readyz"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${RELEASE_SUBNET:-172.29.63.0/24}
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  backend_uploads:

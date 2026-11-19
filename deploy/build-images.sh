@@ -18,6 +18,8 @@ case "$direct" in
 esac
 
 repo_label="org.opencontainers.image.revision=$revision"
+mysql="feedsystem-mysql:$revision"
+docker build --label "$repo_label" -t "$mysql" - < deploy/mysql.Dockerfile
 for target in api worker; do
   docker build --label "$repo_label" --target "$target" -f backend/Dockerfile \
     --build-arg "GOPROXY=${RELEASE_GOPROXY:-https://proxy.golang.org,direct}" \
@@ -36,6 +38,6 @@ docker build --label "$repo_label" -f frontend/Dockerfile \
   --build-arg "VITE_OSS_PLAYBACK_ORIGIN=$playback_origin" \
   -t "$frontend" .
 
-printf 'API_IMAGE=feedsystem-api:%s\nWORKER_IMAGE=feedsystem-worker:%s\nFRONTEND_IMAGE=%s\n' "$revision" "$revision" "$frontend"
+printf 'MYSQL_IMAGE=%s\nAPI_IMAGE=feedsystem-api:%s\nWORKER_IMAGE=feedsystem-worker:%s\nFRONTEND_IMAGE=%s\n' "$mysql" "$revision" "$revision" "$frontend"
 docker image inspect --format '{{index .RepoTags 0}} {{.Id}}' \
-  "feedsystem-api:$revision" "feedsystem-worker:$revision" "$frontend"
+  "$mysql" "feedsystem-api:$revision" "feedsystem-worker:$revision" "$frontend"

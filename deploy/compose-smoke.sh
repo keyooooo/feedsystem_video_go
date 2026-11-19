@@ -12,7 +12,6 @@ export OSS_BUCKET=smoke-bucket
 export OSS_UPLOAD_ROLE_ARN=acs:ram::123456789:role/ci-upload
 export OSS_ACCESS_KEY_ID=ci-synthetic-id
 export OSS_ACCESS_KEY_SECRET=ci-synthetic-secret
-export MYSQL_IMAGE="${MYSQL_IMAGE:-mysql:8.4.13@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902}"
 export REDIS_IMAGE=redis:7.4-alpine
 export RABBITMQ_IMAGE=rabbitmq:4.4.1-alpine
 for name in MYSQL_ROOT_PASSWORD MYSQL_PASSWORD REDIS_PASSWORD RABBITMQ_PASS JWT_SECRET; do
@@ -20,7 +19,7 @@ for name in MYSQL_ROOT_PASSWORD MYSQL_PASSWORD REDIS_PASSWORD RABBITMQ_PASS JWT_
 done
 
 deploy/build-images.sh true "$OSS_UPLOAD_ENDPOINT" "$OSS_PLAYBACK_ENDPOINT" | tee "$tmp/images.log"
-for name in API_IMAGE WORKER_IMAGE FRONTEND_IMAGE; do
+for name in MYSQL_IMAGE API_IMAGE WORKER_IMAGE FRONTEND_IMAGE; do
   export "$name=$(sed -n "s/^${name}=//p" "$tmp/images.log")"
 done
 mkdir -p "$TLS_DIR/live/$FEEDSYSTEM_PUBLIC_HOST"
@@ -63,6 +62,7 @@ assert services["frontend"]["ports"][0]["host_ip"] == "127.0.0.1"'
 mysql_version="$("${public[@]}" exec -T mysql sh -ec \
   'MYSQL_PWD="$MYSQL_PASSWORD" mysql -h 127.0.0.1 -u "$MYSQL_USER" -Nse "SELECT VERSION()"')"
 [[ "$mysql_version" == 8.4.* ]]
+"${public[@]}" exec -T mysql sh -ec '! command -v mysqlsh'
 
 http_port="$("${public[@]}" port frontend 80)"
 tls_port="$("${public[@]}" port frontend 443)"
@@ -81,6 +81,7 @@ test "$status" = 401
   -d '{"username":"release-check","password":"ci-fixture-password"}' "$tls_url/api/account/register" >/dev/null
 
 rev="$(git rev-parse HEAD)"
+test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$MYSQL_IMAGE")" = "$rev"
 test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$API_IMAGE")" = "$rev"
 test "$(docker image inspect --format '{{index .Config.Labels "io.feedsystem.oss.upload-origin"}}' "$FRONTEND_IMAGE")" = "$OSS_UPLOAD_ENDPOINT"
 printf '%s\n' 'PASS: production Compose, dependency readiness, TLS, HSTS, CSP, private ports, normal registration and upload authentication'

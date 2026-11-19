@@ -12,7 +12,7 @@
 
 ## 构建与配置
 
-服务器使用支持 `!override` 的 Docker Compose。从测试通过的提交构建三个镜像。用归档分发源代码时保留文件权限，确保 RabbitMQ 用户能读取挂载的部署配置。私密环境文件单独设置为 `600`。
+服务器使用支持 `!override` 的 Docker Compose。从测试通过的提交构建 API、Worker、React 和 MySQL 镜像。用归档分发源代码时保留文件权限，确保 RabbitMQ 用户能读取挂载的部署配置。私密环境文件单独设置为 `600`。
 
 ```bash
 git rev-parse HEAD
@@ -23,7 +23,7 @@ deploy/build-images.sh true https://media.example.com https://media.example.com
 
 将 `deploy/.env.production.example` 复制到源码目录之外，例如 `~/.config/feedsystem/release.env`。目录权限设为 `700`，文件权限设为 `600`。在服务器上使用 `openssl rand -hex 32` 为 MySQL root、MySQL 应用账号、Redis、RabbitMQ 和 JWT 分别生成密钥。业务容器使用独立的 MySQL 用户。更新镜像时保留上一版镜像与环境文件。
 
-填写构建脚本输出的三个应用镜像名，记录镜像 ID 与 `org.opencontainers.image.revision`。环境模板固定 MySQL 8.4 LTS 的官方镜像摘要。旧 MySQL 8.0 仅用于读取和备份源库。新环境从空的 8.4 数据卷恢复逻辑快照，禁止把已有 8.0 数据卷直接挂载到 8.4。Redis 7.4 和 RabbitMQ 4.4 使用同一轮环境验收通过的镜像。拉取后用 `docker image inspect` 取得对应 digest 并填入环境文件。服务器构建受内存和磁盘约束时，从具备资源的构建机传入经校验的 `docker save` 归档，再用 `docker load` 导入。保留镜像 ID、架构、SHA 和 CI 链接。
+填写构建脚本输出的四个镜像名，记录镜像 ID 与 `org.opencontainers.image.revision`。MySQL 镜像固定官方 8.4 LTS 基础镜像摘要，更新已修复的系统库，移除未使用的 MySQL Shell，并使用发布 Go 工具链构建 gosu。保留官方 MySQL 初始化和逻辑备份工具。旧 MySQL 8.0 用于读取和备份源库，新环境在全新 8.4 数据卷恢复逻辑快照。Redis 7.4 和 RabbitMQ 4.4 使用同一轮环境验收通过的镜像。拉取后用 `docker image inspect` 取得对应 digest 并填入环境文件。服务器构建受内存和磁盘约束时，从具备资源的构建机传入经校验的 `docker save` 归档，再用 `docker load` 导入。保留镜像 ID、架构、SHA 和 CI 链接。
 
 对照 [直传 API 和广州 OSS 配置](../backend/OSS_UPLOAD_API.md) 填写私有 Bucket、服务器 RAM 用户、上传角色 ARN、分片生命周期及精确 CORS 来源。RAM 访问凭据只由 API 读取。前端镜像的上传、播放 Origin 标签须与发布配置匹配。广州的新 OSS 用户可能需要已备案的自定义域名及其 HTTPS 证书才能通过公网调用数据 API。
 
@@ -67,7 +67,7 @@ ssh -N -L 15174:127.0.0.1:15174 admin@8.134.84.151
 
 当前回环环境使用本地媒体模式，已验证匿名 Feed、注册、登录、视频与封面上传、发布、深层路由和 `206 Content-Range`。独立验收数据仅写入预发布副本。真实 OSS 直传需要另行配置测试 Bucket、上传角色和浏览器 Origin。
 
-当前回环环境沿用已验证的 MySQL 8.0 数据卷。MySQL 已结束 8.0 的维护，[官方版本说明](https://dev.mysql.com/doc/relnotes/mysql/8.0/en/)建议迁移到 8.4 LTS。8.4.13 已通过本地后端 MySQL 集成测试和完整 Compose 冒烟。官方镜像的 Trivy 报告仍有严重和高危项，涉及镜像自带的 MySQL Shell Python 依赖、gosu 和基础系统库。公开发布前需完成修补并扫描实际交付的镜像。
+当前回环环境沿用已验证的 MySQL 8.0 数据卷。MySQL 已结束 8.0 的维护，[官方版本说明](https://dev.mysql.com/doc/relnotes/mysql/8.0/en/)建议迁移到 8.4 LTS。8.4.13 已通过后端 MySQL 集成测试。发布构建使用修补后的 MySQL 镜像。公开发布前记录实际交付镜像的扫描结果。
 
 ## 公开入口与回滚
 

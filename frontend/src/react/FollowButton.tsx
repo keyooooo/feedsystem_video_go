@@ -33,6 +33,10 @@ export default function FollowButton({
           return;
         }
         try {
+          if (state.error) {
+            await loadFollowing();
+            return;
+          }
           await toggleFollowing(id);
           show(followed ? "已取消关注" : "关注成功");
           onChanged?.();
@@ -41,7 +45,7 @@ export default function FollowButton({
         }
       }}
     >
-      {followed ? "已关注" : "关注"}
+      {state.error ? "重试关注状态" : followed ? "已关注" : "关注"}
     </button>
   );
 }

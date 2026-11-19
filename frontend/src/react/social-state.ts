@@ -19,7 +19,8 @@ let pending: Promise<void> | null = null;
 export function loadFollowing() {
   const session = authSession.getState();
   const state = useSocialState.getState();
-  if (state.revision === session.revision) return pending ?? Promise.resolve();
+  if (state.revision === session.revision && !state.error)
+    return pending ?? Promise.resolve();
   const revision = session.revision;
   useSocialState.setState({
     revision,
@@ -53,6 +54,7 @@ export async function toggleFollowing(id: number) {
   const revision = authSession.getState().revision,
     state = useSocialState.getState();
   if (!authSession.getState().token) throw new Error("请先登录");
+  if (state.error) throw state.error;
   if (state.busy.includes(id)) return;
   const following = state.ids.includes(id);
   useSocialState.setState({ busy: [...state.busy, id] });

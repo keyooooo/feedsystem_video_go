@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+const pageErrors = new WeakMap<Page, string[]>();
 const items = Array.from({ length: 12 }, (_, i) => ({
   id: i + 1,
   author: { id: 2, username: "摄影日记" },
@@ -12,6 +13,16 @@ const items = Array.from({ length: 12 }, (_, i) => ({
   create_time: 1720000000,
 }));
 test.beforeEach(async ({ page }) => {
+  pageErrors.set(page, []);
+  if (process.env.E2E_PRODUCTION) {
+    await page.addInitScript(() => {
+      const violations: string[] = [];
+      Object.assign(window, { cspViolations: violations });
+      document.addEventListener("securitypolicyviolation", (event) => {
+        violations.push(`${event.violatedDirective}: ${event.blockedURI}`);
+      });
+    });
+  }
   await page.route("**/static/**", async (route) => {
     const video = new URL(route.request().url()).pathname.endsWith(".mp4");
     const bytes = readFileSync(
@@ -39,7 +50,7 @@ test.beforeEach(async ({ page }) => {
       },
     });
   });
-  page.on("pageerror", (error) => console.error("PAGE ERROR:", error.message));
+  page.on("pageerror", (error) => pageErrors.get(page)?.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") console.error("BROWSER:", message.text());
   });
@@ -311,7 +322,7 @@ test("sharing without clipboard permissions exposes the actual video permalink",
     page.getByRole("dialog", { name: "分享视频", exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("视频链接")).toHaveValue(
-    "http://127.0.0.1:4173/video/1",
+    new URL("/video/1", page.url()).href,
   );
 });
 
@@ -354,4 +365,162 @@ test("local search does not scan subsequent feed pages without an explicit reque
   expect(nextPages).toBe(0);
   await page.getByRole("button", { name: "继续查找" }).click();
   await expect.poll(() => nextPages).toBe(1);
+});
+
+// Every browser flow also runs against the actual Nginx image, with its enforced CSP.
+test.afterEach(async ({ page }) => {
+  expect(pageErrors.get(page)).toEqual([]);
+  if (process.env.E2E_PRODUCTION && !page.isClosed()) {
+    const violations = await page.evaluate(
+      () =>
+        (window as unknown as { cspViolations?: string[] }).cspViolations ?? [],
+    );
+    expect(violations).toEqual([]);
+  }
+});
+
+test("likes preserve state on failure and comments can retry and delete", async ({
+  page,
+}) => {
+  await signedIn(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  let likes = 0,
+    publishes = 0;
+  let comments: {
+    id: number;
+    author_id: number;
+    username: string;
+    content: string;
+    created_at: string;
+  }[] = [];
+  await page.route("**/api/like/like", async (route) => {
+    likes++;
+    await route.fulfill(
+      likes === 1
+        ? { status: 503, json: { error: "点赞暂不可用" } }
+        : { json: { message: "ok" } },
+    );
+  });
+  await page.route("**/api/comment/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/listAll")) {
+      await route.fulfill({ json: comments });
+      return;
+    }
+    if (path.endsWith("/publish")) {
+      publishes++;
+      if (publishes === 1) {
+        await route.fulfill({ status: 503, json: { error: "评论暂不可用" } });
+        return;
+      }
+      comments = [
+        {
+          id: 91,
+          author_id: 1,
+          username: "verification",
+          content: route.request().postDataJSON().content,
+          created_at: "2026-11-19T08:00:00Z",
+        },
+      ];
+    } else if (path.endsWith("/delete")) {
+      expect(route.request().postDataJSON()).toEqual({ comment_id: 91 });
+      comments = [];
+    }
+    await route.fulfill({ json: { message: "ok" } });
+  });
+  await page.goto("/");
+  const like = page.getByRole("button", { name: "点赞", exact: true }).first();
+  await like.click();
+  await expect(page.getByRole("status")).toHaveText("点赞暂不可用");
+  await expect(like).toHaveAttribute("aria-pressed", "false");
+  await like.click();
+  await expect(
+    page.getByRole("button", { name: "取消点赞", exact: true }).first(),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "打开评论" }).first().click();
+  await page.getByLabel("你的评论").fill("我的评论");
+  await page.getByRole("button", { name: "发送评论" }).click();
+  await expect(page.getByRole("alert")).toHaveText("评论暂不可用");
+  await expect(page.getByLabel("你的评论")).toHaveValue("我的评论");
+  await page.getByRole("button", { name: "发送评论" }).click();
+  await expect(
+    page.locator("article").filter({ hasText: "我的评论" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await expect(page.getByRole("heading", { name: "还没有评论" })).toBeVisible();
+});
+
+test("profile follow and unfollow reflect accepted changes", async ({
+  page,
+}) => {
+  await signedIn(page);
+  const operations: string[] = [];
+  await page.route("**/api/social/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/getAllVloggers")) {
+      await route.fulfill({ json: { vloggers: [] } });
+      return;
+    }
+    operations.push(path);
+    expect(route.request().postDataJSON()).toEqual({ vlogger_id: 2 });
+    await route.fulfill({ json: { message: "ok" } });
+  });
+  await page.goto("/u/2");
+  await page.getByRole("button", { name: "关注", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "已关注", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "已关注", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "关注", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  expect(operations).toEqual(["/api/social/follow", "/api/social/unfollow"]);
+});
+
+test("messages respect IME and line breaks and retain failed drafts for retry", async ({
+  page,
+}) => {
+  await signedIn(page);
+  let sends = 0;
+  await page.route("**/api/account/findByID", (route) =>
+    route.fulfill({ json: { id: 2, username: "friend" } }),
+  );
+  await page.route("**/api/message/list", (route) =>
+    route.fulfill({ json: { messages: [] } }),
+  );
+  await page.route("**/api/message/send", async (route) => {
+    sends++;
+    const body = route.request().postDataJSON();
+    expect(body).toEqual({ to_id: 2, content: "你好\n第二行" });
+    await route.fulfill(
+      sends === 1
+        ? { status: 503, json: { error: "消息暂不可用" } }
+        : {
+            json: {
+              id: 31,
+              from_id: 1,
+              to_id: 2,
+              content: body.content,
+              created_at: "2026-11-19T08:00:00Z",
+            },
+          },
+    );
+  });
+  await page.goto("/messages/2");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await expect(page.getByRole("link", { name: "@friend" })).toBeVisible();
+  await composer.fill("你好");
+  await composer.dispatchEvent("keydown", { key: "Enter", isComposing: true });
+  await composer.press("Shift+Enter");
+  await expect(composer).toHaveValue("你好\n");
+  expect(sends).toBe(0);
+  await composer.fill("你好\n第二行");
+  await composer.press("Enter");
+  await expect(page.getByRole("alert")).toHaveText("消息暂不可用");
+  await expect(composer).toHaveValue("你好\n第二行");
+  await composer.press("Enter");
+  await expect(composer).toHaveValue("");
+  await expect(page.getByText("你好 第二行", { exact: false })).toBeVisible();
+  expect(sends).toBe(2);
 });

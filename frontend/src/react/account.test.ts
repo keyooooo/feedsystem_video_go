@@ -10,3 +10,12 @@ it("keeps internal return destinations and rejects external login redirects", ()
   ])
     expect(safeRedirect(target)).toBe("/");
 });
+
+it("rejects URL control-character redirects", () => {
+  for (const path of [
+    "/\t/evil.example",
+    "/\n/evil.example",
+    "/\r/evil.example",
+  ])
+    expect(safeRedirect(path)).toBe("/");
+});

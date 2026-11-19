@@ -264,6 +264,7 @@ export function CommentPanel({
   item: FeedVideoItem | null;
   onClose: () => void;
 }) {
+  const epoch = useRef(0);
   const wide = useMedia("(min-width: 1200px)");
   const [content, setContent] = useState(""),
     [sending, setSending] = useState(false),
@@ -276,38 +277,50 @@ export function CommentPanel({
     item ? comments.listAll(item.id) : Promise.resolve([]),
   );
   useEffect(() => {
+    const current = ++epoch.current;
     setContent("");
     setFailure(null);
-  }, [item?.id]);
+    setSending(false);
+    setDeleting(null);
+    return () => {
+      epoch.current = current + 1;
+    };
+  }, [item?.id, session.revision]);
   async function send() {
-    if (!item || !content.trim()) return;
+    if (sending || !item || !content.trim()) return;
     if (!session.token) {
       navigate("/account?redirect=" + encodeURIComponent(location.pathname));
       return;
     }
+    const current = epoch.current;
     setSending(true);
     setFailure(null);
     try {
       await comments.publish(item.id, content.trim());
-      setContent("");
-      result.reload();
+      if (current === epoch.current) {
+        setContent("");
+        result.reload();
+      }
     } catch (e) {
-      setFailure(e);
+      if (current === epoch.current) setFailure(e);
     } finally {
-      setSending(false);
+      if (current === epoch.current) setSending(false);
     }
   }
   async function remove() {
-    if (!deleting) return;
+    if (sending || !deleting) return;
+    const current = epoch.current;
     setSending(true);
     try {
       await comments.remove(deleting);
-      setDeleting(null);
-      result.reload();
+      if (current === epoch.current) {
+        setDeleting(null);
+        result.reload();
+      }
     } catch (e) {
-      setFailure(e);
+      if (current === epoch.current) setFailure(e);
     } finally {
-      setSending(false);
+      if (current === epoch.current) setSending(false);
     }
   }
   return (

@@ -220,16 +220,17 @@ export function MessagesPage() {
     setContent("");
     setSent([]);
     setError(null);
+    setSending(false);
   }, [id, session.revision]);
   const list = [
     ...new Map(
       [...(chat.data?.list || []), ...sent].map((m) => [m.id, m]),
     ).values(),
   ].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
-  useEffect(
-    () => bottom.current?.scrollIntoView({ block: "end" }),
-    [list.length],
-  );
+  useEffect(() => {
+    // Some browsers return a Promise; effects must only return cleanup functions.
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [list.length]);
   async function send() {
     if (sending || !content.trim() || !id) return;
     const captured = version.current;
@@ -244,7 +245,7 @@ export function MessagesPage() {
     } catch (e) {
       if (captured === version.current) setError(e);
     } finally {
-      setSending(false);
+      if (captured === version.current) setSending(false);
     }
   }
   return (

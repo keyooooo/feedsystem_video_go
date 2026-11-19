@@ -13,11 +13,21 @@ import {
 } from "./ui";
 import s from "./App.module.css";
 export function safeRedirect(value: string | null) {
-  return value?.startsWith("/") &&
-    !value.startsWith("//") &&
-    !value.includes("\\")
-    ? value
-    : "/";
+  if (
+    !value?.startsWith("/") ||
+    value.startsWith("//") ||
+    value.includes("\\") ||
+    [...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)
+  )
+    return "/";
+  try {
+    return new URL(value, "https://shortvideo.invalid").origin ===
+      "https://shortvideo.invalid"
+      ? value
+      : "/";
+  } catch {
+    return "/";
+  }
 }
 export function AuthPage({
   register = false,
@@ -137,13 +147,23 @@ export function Settings() {
   );
   const [error, setError] = useState<unknown>(null),
     [busy, setBusy] = useState(false),
-    [confirm, setConfirm] = useState(false);
+    [confirm, setConfirm] = useState(false),
+    [loggingOut, setLoggingOut] = useState(false);
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (busy || profile.loading || !profile.data) return;
     const form = new FormData(e.currentTarget);
     setBusy(true);
     setError(null);
     try {
+      const selected = form.get("avatar");
+      if (
+        selected instanceof File &&
+        selected.size &&
+        (!["image/jpeg", "image/png", "image/webp"].includes(selected.type) ||
+          selected.size > 10 * 1024 * 1024)
+      )
+        throw new Error("头像请选择 10MB 以内的 JPG、PNG 或 WebP 图片");
       const name = String(form.get("username")).trim();
       if (name && name !== identity?.username) {
         const data = await account.rename(name);
@@ -152,11 +172,6 @@ export function Settings() {
       const file = form.get("avatar");
       let avatar_url: string | undefined;
       if (file instanceof File && file.size) {
-        if (
-          !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
-          file.size > 10 * 1024 * 1024
-        )
-          throw new Error("头像请选择 10MB 以内的 JPG、PNG 或 WebP 图片");
         avatar_url = (await account.uploadAvatar(file)).avatar_url;
       }
       await account.updateProfile({ bio: String(form.get("bio")), avatar_url });
@@ -168,14 +183,18 @@ export function Settings() {
     }
   }
   async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
     try {
       await account.logout();
-    } catch (e) {
-      setError(e);
-      return;
+      show("已退出登录");
+    } catch {
+      show("已清除此设备的登录状态；服务器暂不可用");
+    } finally {
+      session.clearTokens();
+      setLoggingOut(false);
+      navigate("/account");
     }
-    session.clearTokens();
-    navigate("/account");
   }
   return (
     <>
@@ -208,8 +227,12 @@ export function Settings() {
               accept="image/jpeg,image/png,image/webp"
             />
           </label>
+          <ErrorBox error={profile.error} retry={profile.reload} />
           <ErrorBox error={error} />
-          <button className={s.primary} disabled={busy}>
+          <button
+            className={s.primary}
+            disabled={busy || loggingOut || profile.loading || !profile.data}
+          >
             {busy ? "保存中…" : "保存资料"}
           </button>
         </form>
@@ -228,7 +251,9 @@ export function Settings() {
         onClose={() => setConfirm(false)}
       >
         <p>下次回来，你可以继续使用当前账号登录。</p>
-        <button onClick={logout}>确认退出</button>
+        <button onClick={logout} disabled={loggingOut}>
+          {loggingOut ? "退出中…" : "确认退出"}
+        </button>
       </Modal>
     </>
   );

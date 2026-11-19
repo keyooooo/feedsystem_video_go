@@ -33,3 +33,19 @@ it("does not mutate follow state on failure or retain it after logout", async ()
   authSession.getState().clearTokens();
   expect(useSocialState.getState().ids).toEqual([]);
 });
+
+it("never guesses follow state after a failed load and allows recovery", async () => {
+  vi.mocked(api.getAllVloggers).mockRejectedValue(
+    new Error("state unavailable"),
+  );
+  await loadFollowing();
+  await expect(toggleFollowing(7)).rejects.toThrow("state unavailable");
+  expect(api.follow).not.toHaveBeenCalled();
+  expect(api.unfollow).not.toHaveBeenCalled();
+  vi.mocked(api.getAllVloggers).mockResolvedValue({
+    vloggers: [{ id: 7, username: "friend" }],
+  });
+  await toggleFollowing(7);
+  expect(api.unfollow).toHaveBeenCalledWith(7);
+  expect(api.follow).not.toHaveBeenCalled();
+});

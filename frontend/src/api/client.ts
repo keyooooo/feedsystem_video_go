@@ -1,17 +1,46 @@
 import { authSession } from "../session/auth";
 export class ApiError extends Error {
-  status: number;
-  payload?: unknown;
   constructor(message: string, status: number, payload?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.payload = payload;
   }
+  status: number;
+  payload?: unknown;
 }
 const base = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
 let pending: { revision: number; promise: Promise<string | null> } | null =
   null;
+type Options = {
+  authRequired?: boolean;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+async function boundedFetch(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const abort = () => controller.abort(init.signal?.reason);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  init.signal?.addEventListener("abort", abort, { once: true });
+  if (init.signal?.aborted) abort();
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    // Keep the deadline active while reading the body, not just until headers arrive.
+    const text = await response.text();
+    return { response, text };
+  } catch (error) {
+    if (timedOut && !init.signal?.aborted)
+      throw new ApiError("请求超时，请稍后重试", 408);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    init.signal?.removeEventListener("abort", abort);
+  }
+}
 async function refresh() {
   const session = authSession.getState();
   if (!session.refreshToken) return null;
@@ -19,22 +48,34 @@ async function refresh() {
   const revision = session.revision;
   const promise = (async () => {
     try {
-      const res = await fetch(`${base}/account/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: session.refreshToken }),
-      });
-      if (!res.ok) throw new Error("登录已过期");
-      const data = await res.json();
+      const { response: res, text } = await boundedFetch(
+        `${base}/account/refresh`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: session.refreshToken }),
+        },
+        10000,
+      );
       if (authSession.getState().revision !== revision) return null;
-      if (typeof data.token !== "string" || !data.token)
-        throw new Error("无效的登录信息");
+      if (!res.ok) {
+        if ([400, 401, 403].includes(res.status)) {
+          authSession.getState().clearTokens();
+          throw new ApiError("登录已过期，请重新登录", 401);
+        }
+        throw new ApiError("登录续期暂不可用，请稍后重试", res.status);
+      }
+      let data: { token?: unknown };
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new ApiError("登录续期响应无效，请稍后重试", 502);
+      }
+      if (authSession.getState().revision !== revision) return null;
+      if (!data || typeof data.token !== "string" || !data.token)
+        throw new ApiError("登录续期响应无效，请稍后重试", 502);
       authSession.getState().setToken(data.token);
       return data.token as string;
-    } catch {
-      if (authSession.getState().revision === revision)
-        authSession.getState().clearTokens();
-      return null;
     } finally {
       if (pending?.revision === revision) pending = null;
     }
@@ -42,7 +83,6 @@ async function refresh() {
   pending = { revision, promise };
   return promise;
 }
-type Options = { authRequired?: boolean; signal?: AbortSignal };
 async function request<T>(
   path: string,
   body: unknown,
@@ -56,27 +96,32 @@ async function request<T>(
   const headers: Record<string, string> = form
     ? {}
     : { "Content-Type": "application/json" };
-  if (session.token) headers.Authorization = `Bearer ${session.token}`;
+  let sentToken = session.token;
+  if (sentToken) headers.Authorization = `Bearer ${sentToken}`;
   const send = () =>
-    fetch(`${base}${path}`, {
-      method: "POST",
-      headers,
-      body: form ? (body as FormData) : JSON.stringify(body ?? {}),
-      signal: options?.signal,
-    });
-  let res = await send();
-  if (
-    res.status === 401 &&
-    path !== "/account/refresh" &&
-    authSession.getState().revision === revision
-  ) {
-    const token = await refresh();
+    boundedFetch(
+      `${base}${path}`,
+      {
+        method: "POST",
+        headers,
+        body: form ? (body as FormData) : JSON.stringify(body ?? {}),
+        signal: options?.signal,
+      },
+      options?.timeoutMs ?? (form ? 120000 : 30000),
+    );
+  let { response: res, text } = await send();
+  if (res.status === 401 && path !== "/account/refresh") {
+    if (authSession.getState().revision !== revision)
+      throw new ApiError("会话已改变，请重试", 409);
+    options?.signal?.throwIfAborted();
+    const current = authSession.getState().token;
+    const token = current && current !== sentToken ? current : await refresh();
     if (token) {
+      sentToken = token;
       headers.Authorization = `Bearer ${token}`;
-      res = await send();
+      ({ response: res, text } = await send());
     }
   }
-  const text = await res.text();
   let data: unknown = null;
   try {
     data = text ? JSON.parse(text) : null;
@@ -86,7 +131,8 @@ async function request<T>(
   if (authSession.getState().revision !== revision)
     throw new ApiError("会话已改变，请重试", 409);
   if (!res.ok) {
-    if (res.status === 401) authSession.getState().clearTokens();
+    if (res.status === 401 && authSession.getState().token === sentToken)
+      authSession.getState().clearTokens();
     throw new ApiError(
       typeof data === "object" && data && "error" in data
         ? String(data.error)

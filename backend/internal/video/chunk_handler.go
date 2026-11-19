@@ -166,11 +166,13 @@ func (h *ChunkUploadHandler) UploadChunk(c *gin.Context) {
 		return
 	}
 
+	// 切片已经上传过，直接返回
 	if session.UploadedBits[req.ChunkIndex] {
 		c.JSON(http.StatusOK, gin.H{"chunk_index": req.ChunkIndex})
 		return
 	}
 
+	// Form-data 文件获取
 	f, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing file"})

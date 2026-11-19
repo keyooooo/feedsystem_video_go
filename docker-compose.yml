@@ -7,16 +7,30 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-feedsystem}
       TZ: "Asia/Shanghai"
     ports:
-      - "3307:3306"
+      # 绑定 127.0.0.1：仅允许服务器本机或 SSH 隧道访问，防止公网被扫库
+      - "127.0.0.1:3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     command:
       - --default-authentication-plugin=mysql_native_password
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
+      # --- 2C2G 核心保命参数 ---
+      - --innodb_buffer_pool_size=256M # 限制缓冲池为 256M
+      - --performance_schema=OFF # 关闭性能字典，立省 300M+ 内存
+      - --max_connections=200 # 配合 Go 端 MaxOpenConns
+      - --innodb_flush_log_at_trx_commit=2 # 压测提速神器：每秒刷盘一次，大幅降低云盘 IO 瓶颈
+    deploy:
+      resources:
+        limits:
+          memory: 550M
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
-      interval: 5s
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent",
+        ]
+      interval: 10s
       timeout: 5s
       retries: 20
 
@@ -25,33 +39,58 @@ services:
     restart: always
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-123456}
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-123456}"]
+    # 增加 maxmemory 限制，防止压测写入过多缓存撑爆内存
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "everysec",
+        "--requirepass",
+        "${REDIS_PASSWORD:-123456}",
+        "--maxmemory",
+        "100mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 130M
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
-      interval: 5s
+      test: ["CMD-SHELL", 'redis-cli -a "$${REDIS_PASSWORD}" ping']
+      interval: 10s
       timeout: 3s
       retries: 20
 
   rabbitmq:
-    image: rabbitmq:3-management
+    # 换成 alpine 轻量镜像，功能完全一样，内存省 100M+
+    image: rabbitmq:3-management-alpine
     restart: always
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-password123}
+      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: "0.7" # 限制 Erlang 虚拟机内存水位
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    deploy:
+      resources:
+        limits:
+          memory: 350M
     healthcheck:
+      # 关键优化：rabbitmq-diagnostics 极吃 CPU，改为每 30s 检查一次，防止压测时抢占 CPU！
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
+      interval: 30s
+      timeout: 10s
+      retries: 10
 
   backend:
     build:
@@ -67,11 +106,17 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-123456}
       RABBITMQ_USER: ${RABBITMQ_USER:-admin}
       RABBITMQ_PASS: ${RABBITMQ_PASS:-password123}
+      # Go 1.19+ 神级特性：告诉 Go Runtime 内存软上限，压测高并发时自动加速 GC 防止被 Docker OOM Kill
+      GOMEMLIMIT: 240MiB
     ports:
-      - "8080:8080"
+      - "8080:8080" # 暴露给公网供你本地 k6 压测
     volumes:
       - ./backend/configs/config.docker.yaml:/app/configs/config.yaml:ro
       - backend_uploads:/app/.run/uploads
+    deploy:
+      resources:
+        limits:
+          memory: 280M
     depends_on:
       mysql:
         condition: service_healthy
@@ -81,7 +126,7 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
-      interval: 10s
+      interval: 15s
       timeout: 5s
       retries: 3
 
@@ -99,8 +144,13 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-123456}
       RABBITMQ_USER: ${RABBITMQ_USER:-admin}
       RABBITMQ_PASS: ${RABBITMQ_PASS:-password123}
+      GOMEMLIMIT: 160MiB
     volumes:
       - ./backend/configs/config.docker.yaml:/app/configs/config.yaml:ro
+    deploy:
+      resources:
+        limits:
+          memory: 200M
     depends_on:
       mysql:
         condition: service_healthy
@@ -110,7 +160,7 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pgrep worker || exit 1"]
-      interval: 15s
+      interval: 20s
       timeout: 5s
       retries: 3
 
@@ -121,11 +171,15 @@ services:
     restart: always
     ports:
       - "5173:80"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
     depends_on:
       - backend
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/ || exit 1"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 3
 

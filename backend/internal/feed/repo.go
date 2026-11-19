@@ -17,6 +17,7 @@ func NewFeedRepository(db *gorm.DB) *FeedRepository {
 	return &FeedRepository{db: db}
 }
 
+// ListLatest 获取最新的视频列表，按创建时间降序排列。可以指定限制数量和时间戳，返回在该时间戳之前创建的视频。
 func (repo *FeedRepository) ListLatest(ctx context.Context, limit int, latestBefore time.Time) ([]*video.Video, error) {
 	var videos []*video.Video
 	query := repo.db.WithContext(ctx).Model(&video.Video{}).
@@ -30,6 +31,7 @@ func (repo *FeedRepository) ListLatest(ctx context.Context, limit int, latestBef
 	return videos, nil
 }
 
+// ListLikesCountWithCursor 获取按点赞数排序的视频列表，支持基于游标的分页。游标包含最后一条记录的点赞数和 ID，用于获取下一页数据。
 func (repo *FeedRepository) ListLikesCountWithCursor(ctx context.Context, limit int, cursor *LikesCountCursor) ([]*video.Video, error) {
 	var videos []*video.Video
 	query := repo.db.WithContext(ctx).Model(&video.Video{}).
@@ -49,6 +51,7 @@ func (repo *FeedRepository) ListLikesCountWithCursor(ctx context.Context, limit 
 	return videos, nil
 }
 
+// ListByFollowing 获取指定用户关注的作者的视频列表，按创建时间降序排列。可以指定限制数量和时间戳，返回在该时间戳之前创建的视频。
 func (repo *FeedRepository) ListByFollowing(ctx context.Context, limit int, viewerAccountID uint, latestBefore time.Time) ([]*video.Video, error) {
 	var videos []*video.Video
 	query := repo.db.WithContext(ctx).Model(&video.Video{}).

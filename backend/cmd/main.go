@@ -76,6 +76,7 @@ func main() {
 		defer rmq.Close()
 		log.Printf("RabbitMQ connected")
 	}
+
 	// Pprof
 	pprofServer, err := observability.NewPprofServer(
 		"API",

@@ -129,6 +129,7 @@ func (w *NotificationWorker) process(ctx context.Context, d amqp.Delivery) error
 			return nil
 		}
 		var authorID uint
+		// 判断评论的作者是否是视频的作者，如果是，则不发送通知
 		if err := w.db.WithContext(ctx).Model(&struct {
 			ID       uint
 			AuthorID uint

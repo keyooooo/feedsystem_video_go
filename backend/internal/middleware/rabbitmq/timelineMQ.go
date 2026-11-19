@@ -26,6 +26,7 @@ type TimelineEvent struct {
 	OccurredAt time.Time `json:"occurred_at"`
 }
 
+// NewTimelineMQ 创建一个新的 TimelineMQ 实例，接收一个 RabbitMQ 基础连接，创建一个独立的 Channel，并声明相关的 exchange、queue 和 binding。
 func NewTimelineMQ(base *RabbitMQ) (*TimelineMQ, error) {
 	if base == nil {
 		return nil, errors.New("rabbitmq base is nil")
@@ -41,6 +42,7 @@ func NewTimelineMQ(base *RabbitMQ) (*TimelineMQ, error) {
 	return &TimelineMQ{ch: ch}, nil
 }
 
+// PublishVideo 发布视频事件到 Timeline MQ，供订阅者（如 Feed 服务）消费
 func (t *TimelineMQ) PublishVideo(ctx context.Context, videoID uint, createTime time.Time) error {
 	if t == nil || t.ch == nil {
 		return errors.New("timeline mq is not initialized")

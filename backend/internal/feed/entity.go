@@ -2,6 +2,7 @@ package feed
 
 import "time"
 
+// FeedAuthor 表示 Feed 中具体其中一个视频的作者信息，包含 ID 和用户名。
 type FeedAuthor struct {
 	ID       uint   `json:"id"`
 	Username string `json:"username"`

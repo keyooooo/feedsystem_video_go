@@ -14,6 +14,8 @@ func UpdatePopularityCache(ctx context.Context, cache *rediscache.Client, id uin
 		return
 	}
 
+	// 删除视频详情缓存和视频实体缓存，确保下次获取时从数据库重新加载，因为视频对象中包含的流行度字段可能已经改变
+	// context使用background表示不继承上游请求取消信号
 	_ = cache.Del(context.Background(), cache.Key("video:detail:id=%d", id))
 	_ = cache.Del(context.Background(), cache.Key("video:entity:%d", id))
 
@@ -24,6 +26,7 @@ func UpdatePopularityCache(ctx context.Context, cache *rediscache.Client, id uin
 	opCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
 
+	// 没有组成事务，直接写入ZSet，增加视频的流行度分数，并设置ZSet的过期时间为2小时，确保热榜数据不会无限增长
 	_ = cache.ZincrBy(opCtx, windowKey, member, float64(change))
 	_ = cache.Expire(opCtx, windowKey, 2*time.Hour)
 }

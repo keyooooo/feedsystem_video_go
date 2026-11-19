@@ -1,130 +1,149 @@
-import { useAuthStore } from '../stores/auth'
-import { reportError } from '../utils/error-reporter'
-
+import { authSession } from "../session/auth";
 export class ApiError extends Error {
-  status: number
-  payload?: unknown
-
   constructor(message: string, status: number, payload?: unknown) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.payload = payload
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+  status: number;
+  payload?: unknown;
+}
+const base = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
+let pending: { revision: number; promise: Promise<string | null> } | null =
+  null;
+type Options = {
+  authRequired?: boolean;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+async function boundedFetch(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const abort = () => controller.abort(init.signal?.reason);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  init.signal?.addEventListener("abort", abort, { once: true });
+  if (init.signal?.aborted) abort();
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    // Keep the deadline active while reading the body, not just until headers arrive.
+    const text = await response.text();
+    return { response, text };
+  } catch (error) {
+    if (timedOut && !init.signal?.aborted)
+      throw new ApiError("请求超时，请稍后重试", 408);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    init.signal?.removeEventListener("abort", abort);
   }
 }
-
-type ApiErrorBody = { error?: string }
-
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
-
-let isRefreshing = false
-let refreshPromise: Promise<string | null> | null = null
-
-async function tryRefresh(): Promise<string | null> {
-  const auth = useAuthStore()
-  if (!auth.refreshToken) return null
-  if (isRefreshing) return refreshPromise
-  isRefreshing = true
-  refreshPromise = (async () => {
+async function refresh() {
+  const session = authSession.getState();
+  if (!session.refreshToken) return null;
+  if (pending?.revision === session.revision) return pending.promise;
+  const revision = session.revision;
+  const promise = (async () => {
     try {
-      const res = await fetch(`${API_BASE}/account/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: auth.refreshToken }),
-      })
-      if (!res.ok) { auth.clearTokens(); return null }
-      const data = await res.json()
-      auth.setToken(data.token)
-      return data.token as string
-    } catch {
-      auth.clearTokens()
-      return null
+      const { response: res, text } = await boundedFetch(
+        `${base}/account/refresh`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: session.refreshToken }),
+        },
+        10000,
+      );
+      if (authSession.getState().revision !== revision) return null;
+      if (!res.ok) {
+        if ([400, 401, 403].includes(res.status)) {
+          authSession.getState().clearTokens();
+          throw new ApiError("登录已过期，请重新登录", 401);
+        }
+        throw new ApiError("登录续期暂不可用，请稍后重试", res.status);
+      }
+      let data: { token?: unknown };
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new ApiError("登录续期响应无效，请稍后重试", 502);
+      }
+      if (authSession.getState().revision !== revision) return null;
+      if (!data || typeof data.token !== "string" || !data.token)
+        throw new ApiError("登录续期响应无效，请稍后重试", 502);
+      authSession.getState().setToken(data.token);
+      return data.token as string;
     } finally {
-      isRefreshing = false
+      if (pending?.revision === revision) pending = null;
     }
-  })()
-  return refreshPromise
+  })();
+  pending = { revision, promise };
+  return promise;
 }
-
-export async function postJson<T>(path: string, body: unknown, options?: { authRequired?: boolean }): Promise<T> {
-  const auth = useAuthStore()
-  const token = auth.token
-
-  if (options?.authRequired && !token) {
-    throw new ApiError('需要先登录（缺少 token）', 401)
-  }
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (token) headers.Authorization = `Bearer ${token}`
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body ?? {}),
-  })
-
-  if (res.status === 401 && path !== '/account/refresh') {
-    const newToken = await tryRefresh()
-    if (newToken) {
-      headers.Authorization = `Bearer ${newToken}`
-      const retryRes = await fetch(`${API_BASE}${path}`, {
-        method: 'POST', headers, body: JSON.stringify(body ?? {}),
-      })
-      return handleResponse<T>(retryRes, path)
-    }
-  }
-
-  return handleResponse<T>(res, path)
-}
-
-export async function postForm<T>(path: string, body: FormData, options?: { authRequired?: boolean }): Promise<T> {
-  const auth = useAuthStore()
-  const token = auth.token
-
-  if (options?.authRequired && !token) {
-    throw new ApiError('需要先登录（缺少 token）', 401)
-  }
-
-  const headers: Record<string, string> = {}
-  if (token) headers.Authorization = `Bearer ${token}`
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers,
-    body,
-  })
-
-  if (res.status === 401 && path !== '/account/refresh') {
-    const newToken = await tryRefresh()
-    if (newToken) {
-      headers.Authorization = `Bearer ${newToken}`
-      const retryRes = await fetch(`${API_BASE}${path}`, {
-        method: 'POST', headers, body,
-      })
-      return handleResponse<T>(retryRes, path)
+async function request<T>(
+  path: string,
+  body: unknown,
+  form: boolean,
+  options?: Options,
+): Promise<T> {
+  const session = authSession.getState(),
+    revision = session.revision;
+  if (options?.authRequired && !session.token)
+    throw new ApiError("请先登录", 401);
+  const headers: Record<string, string> = form
+    ? {}
+    : { "Content-Type": "application/json" };
+  let sentToken = session.token;
+  if (sentToken) headers.Authorization = `Bearer ${sentToken}`;
+  const send = () =>
+    boundedFetch(
+      `${base}${path}`,
+      {
+        method: "POST",
+        headers,
+        body: form ? (body as FormData) : JSON.stringify(body ?? {}),
+        signal: options?.signal,
+      },
+      options?.timeoutMs ?? (form ? 120000 : 30000),
+    );
+  let { response: res, text } = await send();
+  if (res.status === 401 && path !== "/account/refresh") {
+    if (authSession.getState().revision !== revision)
+      throw new ApiError("会话已改变，请重试", 409);
+    options?.signal?.throwIfAborted();
+    const current = authSession.getState().token;
+    const token = current && current !== sentToken ? current : await refresh();
+    if (token) {
+      sentToken = token;
+      headers.Authorization = `Bearer ${token}`;
+      ({ response: res, text } = await send());
     }
   }
-
-  return handleResponse<T>(res, path)
-}
-
-async function handleResponse<T>(res: Response, path: string): Promise<T> {
-  const auth = useAuthStore()
-  const text = await res.text()
-  let data: unknown = null
-  if (text) {
-    try { data = JSON.parse(text) } catch { data = text }
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
   }
-
+  if (authSession.getState().revision !== revision)
+    throw new ApiError("会话已改变，请重试", 409);
   if (!res.ok) {
-    if (res.status === 401) auth.clearTokens()
-    const msg = data && typeof data === 'object' && (data as ApiErrorBody).error
-      ? String((data as ApiErrorBody).error)
-      : `请求失败 (${res.status})`
-    const apiErr = new ApiError(msg, res.status, data)
-    reportError(apiErr, { path, status: res.status })
-    throw apiErr
+    if (res.status === 401 && authSession.getState().token === sentToken)
+      authSession.getState().clearTokens();
+    throw new ApiError(
+      typeof data === "object" && data && "error" in data
+        ? String(data.error)
+        : `请求失败 (${res.status})`,
+      res.status,
+      data,
+    );
   }
-
-  return data as T
+  return data as T;
 }
+export const postJson = <T>(path: string, body: unknown, options?: Options) =>
+  request<T>(path, body, false, options);
+export const postForm = <T>(path: string, body: FormData, options?: Options) =>
+  request<T>(path, body, true, options);

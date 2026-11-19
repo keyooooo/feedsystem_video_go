@@ -28,6 +28,7 @@ func isDupKey(err error) bool {
 	return errors.As(err, &me) && me.Number == 1062
 }
 
+// Like 处理用户点赞视频的逻辑，首先检查视频是否存在，然后检查用户是否已经点赞过该视频，如果没有，则尝试通过 Like MQ 和 Popularity MQ 发布消息，如果发布失败，则回退到直接写入 MySQL 和 Redis 的方式，确保数据一致性和最终一致性。
 func (s *LikeService) Like(ctx context.Context, like *Like) error {
 	if like == nil {
 		return errors.New("like is nil")
@@ -105,6 +106,7 @@ func (s *LikeService) Like(ctx context.Context, like *Like) error {
 	return nil
 }
 
+// Unlike 处理用户取消点赞视频的逻辑，首先检查视频是否存在，然后检查用户是否已经点赞过该视频，如果已经点赞，则尝试通过 Like MQ 和 Popularity MQ 发布消息，如果发布失败，则回退到直接写入 MySQL 和 Redis 的方式，确保数据一致性和最终一致性。
 func (s *LikeService) Unlike(ctx context.Context, like *Like) error {
 	if like == nil {
 		return errors.New("like is nil")
@@ -177,10 +179,12 @@ func (s *LikeService) Unlike(ctx context.Context, like *Like) error {
 	return nil
 }
 
+// IsLiked 检查用户是否已经点赞过某个视频，返回布尔值和可能的错误。
 func (s *LikeService) IsLiked(ctx context.Context, videoID, accountID uint) (bool, error) {
 	return s.repo.IsLiked(ctx, videoID, accountID)
 }
 
+// ListLikedVideos 获取用户点赞过的视频列表，返回视频对象的切片和可能的错误。
 func (s *LikeService) ListLikedVideos(ctx context.Context, accountID uint) ([]Video, error) {
 	return s.repo.ListLikedVideos(ctx, accountID)
 }

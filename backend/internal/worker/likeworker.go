@@ -32,7 +32,7 @@ func (w *LikeWorker) Run(ctx context.Context) error {
 	}
 
 	deliveries, err := w.ch.Consume(
-		w.queue,
+		w.queue, // "like.events"
 		"",
 		false,
 		false,
@@ -57,6 +57,7 @@ func (w *LikeWorker) Run(ctx context.Context) error {
 	}
 }
 
+// handleDelivery 处理单个消息的投递，支持重试机制
 func (w *LikeWorker) handleDelivery(ctx context.Context, d amqp.Delivery) {
 	const maxRetries = 3
 	for i := 0; i <= maxRetries; i++ {
@@ -65,11 +66,12 @@ func (w *LikeWorker) handleDelivery(ctx context.Context, d amqp.Delivery) {
 			_ = d.Nack(false, true)
 			return
 		default:
+			// select的default分支跳过并监听ctx.Done()，以便在上下文取消时立即返回
 		}
 		if err := w.process(ctx, d.Body); err != nil {
 			if i >= maxRetries {
 				log.Printf("like worker: 重试 %d 次后仍失败, 丢弃: %v", maxRetries, err)
-				_ = d.Ack(false)
+				_ = d.Ack(false) // 丢弃消息，避免无限重试
 				return
 			}
 			wait := time.Duration(1<<uint(i)) * time.Second
@@ -77,11 +79,13 @@ func (w *LikeWorker) handleDelivery(ctx context.Context, d amqp.Delivery) {
 			time.Sleep(wait)
 			continue
 		}
-		_ = d.Ack(false)
+
+		_ = d.Ack(false) // 成功处理后确认消息
 		return
 	}
 }
 
+// process负责解析JSON、校验字段、并根据Action 分流
 func (w *LikeWorker) process(ctx context.Context, body []byte) error {
 	var evt rabbitmq.LikeEvent
 	if err := json.Unmarshal(body, &evt); err != nil {
@@ -102,6 +106,7 @@ func (w *LikeWorker) process(ctx context.Context, body []byte) error {
 	}
 }
 
+// applyLike 处理点赞事件，更新数据库和视频流行度
 func (w *LikeWorker) applyLike(ctx context.Context, userID, videoID uint) error {
 	ok, err := w.videos.IsExist(ctx, videoID)
 	if err != nil {
@@ -129,6 +134,7 @@ func (w *LikeWorker) applyLike(ctx context.Context, userID, videoID uint) error 
 	return w.videos.ChangePopularity(ctx, videoID, 1)
 }
 
+// applyUnlike 处理取消点赞事件，更新数据库和视频流行度
 func (w *LikeWorker) applyUnlike(ctx context.Context, userID, videoID uint) error {
 	ok, err := w.videos.IsExist(ctx, videoID)
 	if err != nil {

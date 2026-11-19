@@ -186,11 +186,15 @@ function Player({
   const [blocked, setBlocked] = useState(false);
   const wantsPlayback = useRef(false);
   const retrySignedURL = useRef<(() => boolean) | undefined>(undefined);
+  const seekSigned = useRef<((time: number) => boolean) | undefined>(undefined);
+  const [duration, setDuration] = useState(0);
+  const [position, setPosition] = useState(0);
   const source = mediaPath(item.play_url);
+  const signed =
+    !!source && /^\/api\/media\/assets\/[a-f0-9]{32}$/.test(source);
   useEffect(() => {
     const element = ref.current;
     if (!element || !source) return;
-    const signed = /^\/api\/media\/assets\/[a-f0-9]{32}$/.test(source);
     let lastRequest = Date.now();
     let refreshed = false;
     let lastTime = 0;
@@ -198,21 +202,29 @@ function Player({
     let live = true;
 
     const sample = () => {
-      if (pendingTime === undefined) lastTime = element.currentTime;
+      if (pendingTime !== undefined) return;
+      lastTime = element.currentTime;
+      setPosition(lastTime);
     };
-    const retry = () => {
+    const retry = (time = element.currentTime || pendingTime || lastTime) => {
       if (!signed || refreshed) return false;
       refreshed = true;
-      pendingTime = element.currentTime || lastTime;
+      pendingTime = time;
       lastRequest = Date.now();
-      element.src = `${source}?refresh=${lastRequest}`;
+      // Let the media engine request bytes around the target on its first load.
+      element.preload = "auto";
+      element.src = `${source}?refresh=${lastRequest}#t=${time}`;
+      element.load();
       return true;
     };
-    const seek = () => {
-      // A new seek may use the old signed redirect target for its next Range request.
-      if (Date.now() - lastRequest < 14 * 60_000) return;
+    const seek = (time: number) => {
+      if (Date.now() - lastRequest < 14 * 60_000) {
+        if (pendingTime === undefined) return false;
+        pendingTime = time;
+        return true;
+      }
       refreshed = false;
-      retry();
+      return retry(time);
     };
     const error = () => {
       if (!retry()) setBlocked(true);
@@ -222,7 +234,9 @@ function Player({
       // WebKit may reset a seek made at loadedmetadata while it opens the new source.
       const time = Math.min(pendingTime, element.duration || pendingTime);
       pendingTime = undefined;
-      if (time > 0) element.currentTime = time;
+      if (Math.abs(element.currentTime - time) > 0.02)
+        element.currentTime = time;
+      setPosition(time);
       if (wantsPlayback.current) {
         void element.play().then(
           () => {
@@ -239,8 +253,8 @@ function Player({
         refreshed = false;
         return retry();
       };
+      seekSigned.current = seek;
       element.addEventListener("timeupdate", sample);
-      element.addEventListener("seeking", seek);
       element.addEventListener("error", error);
       element.addEventListener("canplay", restore);
     }
@@ -248,15 +262,15 @@ function Player({
     return () => {
       live = false;
       retrySignedURL.current = undefined;
+      seekSigned.current = undefined;
       element.removeEventListener("timeupdate", sample);
-      element.removeEventListener("seeking", seek);
       element.removeEventListener("error", error);
       element.removeEventListener("canplay", restore);
       element.pause();
       element.removeAttribute("src");
       element.load();
     };
-  }, [source]);
+  }, [source, signed]);
   useEffect(() => {
     if (ref.current) ref.current.muted = muted;
   }, [muted]);
@@ -300,6 +314,10 @@ function Player({
         poster={mediaPath(item.cover_url)}
         preload={active ? "metadata" : "none"}
         aria-label={item.title}
+        onDurationChange={(event) => {
+          const value = event.currentTarget.duration;
+          if (Number.isFinite(value)) setDuration(value);
+        }}
         onClick={() => {
           const element = ref.current;
           if (element?.paused) play();
@@ -310,6 +328,23 @@ function Player({
           }
         }}
       />
+      {signed && active && duration > 0 && (
+        <input
+          aria-label="播放进度"
+          className={s.seek}
+          type="range"
+          min={0}
+          max={duration}
+          step={0.01}
+          value={Math.min(position, duration)}
+          onChange={(event) => {
+            const time = event.currentTarget.valueAsNumber;
+            setPosition(time);
+            if (ref.current && !seekSigned.current?.(time))
+              ref.current.currentTime = time;
+          }}
+        />
+      )}
       {blocked && (
         <button
           className={s.primary}

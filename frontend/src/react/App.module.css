@@ -215,6 +215,19 @@
   width: 100%;
   object-fit: contain;
 }
+.stage .seek {
+  position: absolute;
+  z-index: 1;
+  bottom: 0;
+  left: 16px;
+  width: calc(100% - 32px);
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: #5eead4;
+}
 .meta {
   position: absolute;
   left: 0;
@@ -223,6 +236,9 @@
   padding: 64px 24px 24px;
   background: linear-gradient(transparent, #000d);
   pointer-events: none;
+}
+.stage:has(.seek) .meta {
+  padding-bottom: 44px;
 }
 .meta a {
   pointer-events: auto;

@@ -459,9 +459,9 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
   const seek = await player.evaluate((video: HTMLVideoElement) => {
     const now = Date.now();
     Date.now = () => now + 16 * 60_000;
-    video.currentTime = video.duration / 2;
-    return video.currentTime;
+    return Number((video.duration / 2).toFixed(2));
   });
+  await page.getByRole("slider", { name: "播放进度" }).fill(String(seek));
   await expect.poll(() => refresh.includes(true)).toBe(true);
   await expect
     .poll(() => player.evaluate((video: HTMLVideoElement) => video.currentTime))

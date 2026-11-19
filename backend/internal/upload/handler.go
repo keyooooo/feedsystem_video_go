@@ -222,6 +222,10 @@ func (h *Handler) Media(c *gin.Context) {
 	}
 	c.Header("Cache-Control", "no-store")
 	c.Header("Referrer-Policy", "no-referrer")
+	if c.Request.Method == http.MethodGet && c.Query("resolve") == "1" {
+		c.JSON(http.StatusOK, gin.H{"url": address})
+		return
+	}
 	c.Redirect(http.StatusTemporaryRedirect, address)
 }
 

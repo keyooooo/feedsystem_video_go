@@ -4,6 +4,8 @@ import { UploadCloud, CheckCircle2 } from "lucide-react";
 import { postForm, postJson } from "../api/client";
 import type { Video } from "../api/types";
 import { uploadChunked, type UploadProgress } from "./upload";
+import { cancelUpload, directUploadEnabled } from "./directUploadConfig";
+import type { createDirectUploadRun } from "./directUpload";
 import { ErrorBox, Modal, useNotice } from "./ui";
 import s from "./App.module.css";
 function usePreview(file: File | null) {
@@ -35,7 +37,8 @@ export default function UploadPage() {
       total: 0,
       stage: "",
     }),
-    [cancel, setCancel] = useState(false);
+    [cancel, setCancel] = useState(false),
+    [publishing, setPublishing] = useState(false);
   const blocker = useBlocker(busy);
   const controller = useRef<AbortController | null>(null),
     preview = usePreview(file),
@@ -62,7 +65,7 @@ export default function UploadPage() {
   }
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!file || !cover || busy) return;
+    if (!file || !cover || controller.current) return;
     const fields = new FormData(e.currentTarget);
     const title = String(fields.get("title") || "").trim();
     if (!title) {
@@ -80,38 +83,58 @@ export default function UploadPage() {
     controller.current = task;
     setBusy(true);
     setError(null);
+    let run: ReturnType<typeof createDirectUploadRun> | undefined;
     try {
-      const uploaded = await uploadChunked(file, task.signal, setProgress);
-      task.signal.throwIfAborted();
-      setProgress((p) => ({ ...p, stage: "上传封面" }));
-      const body = new FormData();
-      body.append("file", cover);
-      const image = await postForm<{ url?: string; cover_url?: string }>(
-        "/video/uploadCover",
-        body,
-        { authRequired: true, signal: task.signal },
-      );
-      task.signal.throwIfAborted();
-      const play_url = uploaded.url || uploaded.play_url,
-        cover_url = image.url || image.cover_url;
-      if (!play_url || !cover_url) throw new Error("上传结果不完整，请重试");
+      let assets: Record<string, string>;
+      if (directUploadEnabled) {
+        const direct = await import("./directUpload");
+        task.signal.throwIfAborted();
+        run = direct.createDirectUploadRun(task.signal);
+        const video_asset_id = await run.upload(file, "video", setProgress);
+        const cover_asset_id = await run.upload(cover, "cover", setProgress);
+        assets = { video_asset_id, cover_asset_id };
+      } else {
+        const uploaded = await uploadChunked(file, task.signal, setProgress);
+        task.signal.throwIfAborted();
+        setProgress((p) => ({ ...p, stage: "上传封面" }));
+        const body = new FormData();
+        body.append("file", cover);
+        const image = await postForm<{ url?: string; cover_url?: string }>(
+          "/video/uploadCover",
+          body,
+          { authRequired: true, signal: task.signal },
+        );
+        const play_url = uploaded.url || uploaded.play_url;
+        const cover_url = image.url || image.cover_url;
+        if (!play_url || !cover_url) throw new Error("上传结果不完整，请重试");
+        assets = { play_url, cover_url };
+      }
+      const signal = run?.signal ?? task.signal;
+      signal.throwIfAborted();
+      setPublishing(true);
+      setCancel(false);
       setProgress((p) => ({ ...p, stage: "发布作品" }));
       const result = await postJson<Video>(
         "/video/publish",
         {
           title,
           description: String(fields.get("description") || "").trim(),
-          play_url,
-          cover_url,
+          ...assets,
         },
-        { authRequired: true, signal: task.signal },
+        { authRequired: true, signal },
       );
+      signal.throwIfAborted();
+      run?.published();
       setPublished(result);
       show("作品发布成功");
     } catch (e) {
-      if (task.signal.aborted) show("上传已取消，再次选择相同文件可继续上传");
-      else setError(e);
+      if (task.signal.reason === cancelUpload) show("上传已取消");
+      else if (task.signal.aborted && !directUploadEnabled)
+        show("上传已取消，再次选择相同文件可继续上传");
+      else if (!task.signal.aborted) setError(e);
     } finally {
+      await run?.close();
+      setPublishing(false);
       setBusy(false);
       controller.current = null;
     }
@@ -194,7 +217,7 @@ export default function UploadPage() {
               <button className={s.primary} disabled={busy || !file || !cover}>
                 {busy ? "正在发布…" : "发布作品"}
               </button>
-              {busy && (
+              {busy && !publishing && (
                 <button type="button" onClick={() => setCancel(true)}>
                   取消上传
                 </button>
@@ -235,23 +258,40 @@ export default function UploadPage() {
         </aside>
       </form>
       <Modal
-        title="取消当前上传？"
+        title={publishing ? "正在发布作品" : "取消当前上传？"}
         open={cancel || blocker.state === "blocked"}
         onClose={() => {
           setCancel(false);
           if (blocker.state === "blocked") blocker.reset();
         }}
       >
-        <p>已经传好的分片会保留。稍后再次选择同一文件即可续传。</p>
-        <button
-          onClick={() => {
-            controller.current?.abort();
-            setCancel(false);
-            if (blocker.state === "blocked") blocker.proceed();
-          }}
-        >
-          确认取消
-        </button>
+        {publishing ? (
+          <p>请等待当前发布请求完成。</p>
+        ) : (
+          <>
+            <p>
+              {directUploadEnabled
+                ? "取消后将结束这次上传。离开页面时可保留断点，回来后选择相同文件继续。"
+                : "已经传好的分片会保留。稍后再次选择同一文件即可续传。"}
+            </p>
+            {directUploadEnabled && blocker.state === "blocked" && (
+              <button type="button" onClick={() => blocker.proceed()}>
+                保留断点并离开
+              </button>
+            )}
+            <button
+              onClick={() => {
+                controller.current?.abort(
+                  directUploadEnabled ? cancelUpload : undefined,
+                );
+                setCancel(false);
+                if (blocker.state === "blocked") blocker.proceed();
+              }}
+            >
+              确认取消
+            </button>
+          </>
+        )}
       </Modal>
     </>
   );

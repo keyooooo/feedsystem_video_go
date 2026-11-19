@@ -45,7 +45,8 @@ type Cloud interface {
 }
 
 type CloudConfig struct {
-	Region, Bucket, UploadRoleARN, AccessKeyID, AccessKeySecret, PlaybackEndpoint, ProbePath string
+	Region, Bucket, UploadRoleARN, AccessKeyID, AccessKeySecret string
+	UploadEndpoint, PlaybackEndpoint, ProbePath                 string
 }
 
 type ossObjects interface {
@@ -71,8 +72,19 @@ var (
 	regionPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)+$`)
 	bucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 	rolePattern   = regexp.MustCompile(`^acs:ram::[0-9]+:role/[a-zA-Z0-9._-]+$`)
+	domainPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 	objectPattern = regexp.MustCompile(`^direct-upload/(staging|assets)/(video|cover|avatar)/[0-9a-f]{32}$`)
 )
+
+func publicOrigin(value string) (string, error) {
+	u, err := url.Parse(value)
+	if err != nil || u.Scheme != "https" || u.User != nil || !domainPattern.MatchString(u.Host) ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
+		strings.Contains(u.Host, "-internal.") {
+		return "", errors.New("must be an exact public HTTPS origin")
+	}
+	return "https://" + u.Host, nil
+}
 
 func NewAlibabaCloud(cfg CloudConfig) (Cloud, error) {
 	if !regionPattern.MatchString(cfg.Region) || !bucketPattern.MatchString(cfg.Bucket) ||
@@ -80,18 +92,27 @@ func NewAlibabaCloud(cfg CloudConfig) (Cloud, error) {
 		return nil, errors.New("OSS region, bucket, upload role ARN and server access credentials are required")
 	}
 	endpoint := "https://oss-" + cfg.Region + ".aliyuncs.com"
+	if cfg.UploadEndpoint != "" {
+		custom, err := publicOrigin(cfg.UploadEndpoint)
+		if err != nil {
+			return nil, fmt.Errorf("OSS upload endpoint: %w", err)
+		}
+		endpoint = custom
+	}
 	provider := credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.AccessKeySecret)
 	internal := oss.NewClient(oss.LoadDefaultConfig().WithRegion(cfg.Region).WithUseInternalEndpoint(true).
 		WithCredentialsProvider(provider).WithConnectTimeout(5 * time.Second).WithReadWriteTimeout(20 * time.Second))
 	playbackConfig := oss.LoadDefaultConfig().WithRegion(cfg.Region).WithCredentialsProvider(provider)
-	if cfg.PlaybackEndpoint != "" {
-		u, err := url.Parse(cfg.PlaybackEndpoint)
-		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Port() != "" ||
-			(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
-			strings.Contains(strings.ToLower(u.Hostname()), "-internal.") {
-			return nil, errors.New("OSS playback endpoint must be a public HTTPS origin")
+	playbackEndpoint := cfg.PlaybackEndpoint
+	if playbackEndpoint == "" {
+		playbackEndpoint = cfg.UploadEndpoint
+	}
+	if playbackEndpoint != "" {
+		custom, err := publicOrigin(playbackEndpoint)
+		if err != nil {
+			return nil, fmt.Errorf("OSS playback endpoint: %w", err)
 		}
-		playbackConfig.WithEndpoint("https://" + u.Host).WithUseCName(true)
+		playbackConfig.WithEndpoint(custom).WithUseCName(true)
 	}
 	client, err := sts.NewClient(&openapi.Config{
 		AccessKeyId: oss.Ptr(cfg.AccessKeyID), AccessKeySecret: oss.Ptr(cfg.AccessKeySecret),

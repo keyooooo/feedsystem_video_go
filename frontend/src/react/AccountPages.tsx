@@ -1,7 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff, LogOut } from "lucide-react";
 import * as account from "../api/account";
+import { postJson } from "../api/client";
+import { cancelUpload, directUploadEnabled } from "./directUploadConfig";
+import type { createDirectUploadRun } from "./directUpload";
+import type { UploadProgress } from "./upload";
 import { authSession } from "../session/auth";
 import {
   useSession,
@@ -149,36 +153,77 @@ export function Settings() {
     [busy, setBusy] = useState(false),
     [confirm, setConfirm] = useState(false),
     [loggingOut, setLoggingOut] = useState(false);
+  const controller = useRef<AbortController | null>(null);
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
+  const [applying, setApplying] = useState(false);
+  useEffect(() => () => controller.current?.abort(), []);
+
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (busy || profile.loading || !profile.data) return;
+    if (controller.current || profile.loading || !profile.data) return;
     const form = new FormData(e.currentTarget);
+    const avatar = form.get("avatar");
+    const limit = directUploadEnabled ? 5 : 10;
+    if (
+      avatar instanceof File &&
+      avatar.size &&
+      (!["image/jpeg", "image/png", "image/webp"].includes(avatar.type) ||
+        avatar.size > limit * 1024 * 1024)
+    ) {
+      setError(new Error(`头像请选择 ${limit}MB 以内的 JPG、PNG 或 WebP 图片`));
+      return;
+    }
+    const task = new AbortController();
+    controller.current = task;
     setBusy(true);
     setError(null);
+    let run: ReturnType<typeof createDirectUploadRun> | undefined;
     try {
-      const selected = form.get("avatar");
-      if (
-        selected instanceof File &&
-        selected.size &&
-        (!["image/jpeg", "image/png", "image/webp"].includes(selected.type) ||
-          selected.size > 10 * 1024 * 1024)
-      )
-        throw new Error("头像请选择 10MB 以内的 JPG、PNG 或 WebP 图片");
+      let assetID: string | undefined;
+      let avatar_url: string | undefined;
+      if (avatar instanceof File && avatar.size) {
+        if (directUploadEnabled) {
+          const direct = await import("./directUpload");
+          task.signal.throwIfAborted();
+          run = direct.createDirectUploadRun(task.signal);
+          assetID = await run.upload(avatar, "avatar", setProgress);
+        } else {
+          avatar_url = (await account.uploadAvatar(avatar)).avatar_url;
+        }
+      }
+      const signal = run?.signal ?? task.signal;
+      signal.throwIfAborted();
+      setApplying(true);
       const name = String(form.get("username")).trim();
       if (name && name !== identity?.username) {
         const data = await account.rename(name);
+        signal.throwIfAborted();
         session.setToken(data.token);
       }
-      const file = form.get("avatar");
-      let avatar_url: string | undefined;
-      if (file instanceof File && file.size) {
-        avatar_url = (await account.uploadAvatar(file)).avatar_url;
+      if (assetID) {
+        await postJson(
+          "/account/applyAvatar",
+          { asset_id: assetID },
+          { authRequired: true, signal },
+        );
+        signal.throwIfAborted();
+        run?.published();
       }
-      await account.updateProfile({ bio: String(form.get("bio")), avatar_url });
+      await postJson(
+        "/account/updateProfile",
+        { bio: String(form.get("bio")), avatar_url },
+        { authRequired: true, signal },
+      );
+      signal.throwIfAborted();
       show("个人资料已保存");
     } catch (e) {
-      setError(e);
+      if (task.signal.reason === cancelUpload) show("头像上传已取消");
+      else if (!task.signal.aborted) setError(e);
     } finally {
+      await run?.close();
+      controller.current = null;
+      setProgress(null);
+      setApplying(false);
       setBusy(false);
     }
   }
@@ -227,6 +272,18 @@ export function Settings() {
               accept="image/jpeg,image/png,image/webp"
             />
           </label>
+          {progress && !applying && (
+            <div role="status">
+              <p>{progress.stage}</p>
+              <progress max={progress.total} value={progress.uploaded} />
+              <button
+                type="button"
+                onClick={() => controller.current?.abort(cancelUpload)}
+              >
+                取消头像上传
+              </button>
+            </div>
+          )}
           <ErrorBox error={profile.error} retry={profile.reload} />
           <ErrorBox error={error} />
           <button

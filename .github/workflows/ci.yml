@@ -116,3 +116,43 @@ jobs:
         with:
           name: browser-results
           path: frontend/test-results
+
+  webkit-media:
+    name: WebKit media (macOS)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies and WebKit
+        run: npm ci && npx playwright install webkit
+
+      - name: Signed playback over HTTP and Range
+        env:
+          E2E_OSS_UPLOAD_ORIGIN: https://upload.example.invalid
+          E2E_OSS_PLAYBACK_ORIGIN: https://media.example.invalid
+          E2E_REAL_MEDIA: "1"
+          API_PROXY_TARGET: http://127.0.0.1:4175
+        run: |
+          SMOKE_BACKEND_PORT=4175 SMOKE_CLIP_FILE="$PWD/e2e/fixtures/clip.mp4" node scripts/smoke-backend.mjs &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          curl --retry 6 --retry-connrefused --retry-delay 1 --fail --silent http://127.0.0.1:4175/healthz
+          npm run test:e2e -- --project webkit --grep 'OSS direct playback' --workers=1
+
+      - name: Browser reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-media-results
+          path: frontend/test-results

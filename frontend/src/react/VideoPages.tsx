@@ -16,6 +16,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { FeedVideoItem, Comment, Video } from "../api/types";
+import { getJson } from "../api/client";
 import * as feed from "../api/feed";
 import * as video from "../api/video";
 import * as like from "../api/like";
@@ -30,6 +31,7 @@ import {
   useNotice,
   useMedia,
 } from "./ui";
+import { mediaPath } from "./directUploadConfig";
 import s from "./App.module.css";
 export type FeedMode = "recommend" | "following" | "likes" | "hot";
 export type Cursor = {
@@ -125,7 +127,7 @@ export function Cover({ url, title }: { url: string; title: string }) {
   return url && !failed ? (
     <img
       className={s.cover}
-      src={url}
+      src={mediaPath(url)}
       alt={title}
       loading="lazy"
       onError={() => setFailed(true)}
@@ -183,16 +185,119 @@ function Player({
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [blocked, setBlocked] = useState(false);
+  const wantsPlayback = useRef(false);
+  const retrySignedURL = useRef<(() => boolean) | undefined>(undefined);
+  const seekSigned = useRef<((time: number) => boolean) | undefined>(undefined);
+  const [duration, setDuration] = useState(0);
+  const [position, setPosition] = useState(0);
+  const source = mediaPath(item.play_url);
+  const signed =
+    !!source && /^\/api\/media\/assets\/[a-f0-9]{32}$/.test(source);
   useEffect(() => {
     const element = ref.current;
-    if (!element) return;
-    element.src = item.play_url;
+    if (!element || !source) return;
+    let lastRequest = Date.now();
+    let refreshed = false;
+    let lastTime = 0;
+    let pendingTime: number | undefined;
+    let live = true;
+    let resolving = false;
+    const controller = new AbortController();
+    const playbackOrigin =
+      import.meta.env.VITE_OSS_PLAYBACK_ORIGIN ||
+      import.meta.env.VITE_OSS_UPLOAD_ORIGIN;
+
+    const sample = () => {
+      if (pendingTime !== undefined) return;
+      lastTime = element.currentTime;
+      setPosition(lastTime);
+    };
+    const retry = (time = element.currentTime || pendingTime || lastTime) => {
+      if (!signed || refreshed || resolving) return false;
+      refreshed = true;
+      pendingTime = time;
+      resolving = true;
+      void getJson<{ url: string }>(`${source.slice(4)}?resolve=1`, {
+        signal: controller.signal,
+      })
+        .then(({ url }) => {
+          if (!live) return;
+          const address = new URL(url, location.origin);
+          if (
+            address.origin !== playbackOrigin &&
+            address.origin !== location.origin
+          )
+            throw new Error("播放域名与站点配置不匹配");
+          lastRequest = Date.now();
+          // A paused element needs playable data from the new source before seeking.
+          element.preload = "auto";
+          element.src = address.href;
+          element.load();
+        })
+        .catch(() => {
+          if (!live) return;
+          pendingTime = undefined;
+          setBlocked(true);
+        })
+        .finally(() => {
+          resolving = false;
+        });
+      return true;
+    };
+    const seek = (time: number) => {
+      if (Date.now() - lastRequest < 14 * 60_000) {
+        if (pendingTime === undefined) return false;
+        pendingTime = time;
+        return true;
+      }
+      refreshed = false;
+      return retry(time);
+    };
+    const error = () => {
+      if (!retry()) setBlocked(true);
+    };
+    const restore = () => {
+      if (pendingTime === undefined) return;
+      // WebKit may reset a seek made at loadedmetadata while it opens the new source.
+      const time = Math.min(pendingTime, element.duration || pendingTime);
+      pendingTime = undefined;
+      if (time > 0) element.currentTime = time;
+      setPosition(time);
+      if (wantsPlayback.current) {
+        void element.play().then(
+          () => {
+            if (live) setBlocked(false);
+          },
+          () => {
+            if (live) setBlocked(true);
+          },
+        );
+      }
+    };
+    if (signed) {
+      retrySignedURL.current = () => {
+        refreshed = false;
+        return retry();
+      };
+      seekSigned.current = seek;
+      element.addEventListener("timeupdate", sample);
+      element.addEventListener("error", error);
+      element.addEventListener("canplay", restore);
+    }
+    element.src = source;
     return () => {
+      live = false;
+      controller.abort();
+      retrySignedURL.current = undefined;
+      seekSigned.current = undefined;
+      element.removeEventListener("timeupdate", sample);
+      element.removeEventListener("error", error);
+      element.removeEventListener("canplay", restore);
       element.pause();
       element.removeAttribute("src");
       element.load();
     };
-  }, [item.play_url]);
+  }, [source, signed]);
   useEffect(() => {
     if (ref.current) ref.current.muted = muted;
   }, [muted]);
@@ -200,6 +305,7 @@ function Player({
     const element = ref.current;
     if (!element) return;
     let live = true;
+    wantsPlayback.current = active;
     if (active)
       void element
         .play()
@@ -214,7 +320,18 @@ function Player({
       live = false;
       element.pause();
     };
-  }, [item.play_url, active]);
+  }, [source, active]);
+  function play() {
+    const element = ref.current;
+    if (!element) return;
+    wantsPlayback.current = true;
+    if ((!element.currentSrc || element.error) && retrySignedURL.current?.())
+      return;
+    void element.play().then(
+      () => setBlocked(false),
+      () => setBlocked(true),
+    );
+  }
   return (
     <>
       <video
@@ -222,34 +339,45 @@ function Player({
         playsInline
         loop
         muted={muted}
-        poster={item.cover_url}
+        poster={mediaPath(item.cover_url)}
         preload={active ? "metadata" : "none"}
         aria-label={item.title}
+        onDurationChange={(event) => {
+          const value = event.currentTarget.duration;
+          if (Number.isFinite(value)) setDuration(value);
+        }}
         onClick={() => {
-          const el = ref.current;
-          if (el) {
-            if (el.paused)
-              void el
-                .play()
-                .then(() => setBlocked(false))
-                .catch(() => setBlocked(true));
-            else {
-              el.pause();
-              setBlocked(true);
-            }
+          const element = ref.current;
+          if (element?.paused) play();
+          else if (element) {
+            wantsPlayback.current = false;
+            element.pause();
+            setBlocked(true);
           }
         }}
       />
+      {signed && active && duration > 0 && (
+        <input
+          aria-label="播放进度"
+          className={s.seek}
+          type="range"
+          min={0}
+          max={duration}
+          step={0.01}
+          value={Math.min(position, duration)}
+          onChange={(event) => {
+            const time = event.currentTarget.valueAsNumber;
+            setPosition(time);
+            if (ref.current && !seekSigned.current?.(time))
+              ref.current.currentTime = time;
+          }}
+        />
+      )}
       {blocked && (
         <button
           className={s.primary}
           style={{ position: "absolute", top: "45%", left: "35%" }}
-          onClick={() =>
-            void ref.current
-              ?.play()
-              .then(() => setBlocked(false))
-              .catch(() => setBlocked(true))
-          }
+          onClick={play}
         >
           <Play size={18} /> 点击播放
         </button>

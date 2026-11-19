@@ -128,6 +128,7 @@ func TestOSSUploadAPI(t *testing.T) {
 	expect("POST", base+"/complete", "", peer.ID, 404)
 	expect("POST", base+"/cancel", "", peer.ID, 404)
 	expect("GET", "/media/assets/"+film.Upload.ID, "", 0, 404)
+	expect("GET", "/media/assets/"+film.Upload.ID+"?resolve=1", "", 0, 404)
 	if want := expect("POST", base+"/credentials", "", owner.ID, 200); want.Grant.Key != film.Grant.Key {
 		t.Fatal("renewed key differs from session")
 	}
@@ -154,6 +155,11 @@ func TestOSSUploadAPI(t *testing.T) {
 			rec.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("invalid media redirect: %d %v", rec.Code, rec.Header())
 		}
+	}
+	resolved := req("GET", "/media/assets/"+film.Upload.ID+"?resolve=1", "", 0)
+	if resolved.Code != 200 || resolved.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(resolved.Body.String(), "https://bucket.example.invalid/direct-upload/assets/video/") {
+		t.Fatalf("invalid resolved media address: %d %v", resolved.Code, resolved.Header())
 	}
 	failed := create(videoBody)
 	cloud.modes[failed.Grant.Key] = upload.ErrInvalidMedia

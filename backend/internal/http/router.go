@@ -10,17 +10,22 @@ import (
 	"feedsystem_video_go/internal/middleware/ratelimit"
 	rediscache "feedsystem_video_go/internal/middleware/redis"
 	"feedsystem_video_go/internal/social"
+	"feedsystem_video_go/internal/upload"
 	"feedsystem_video_go/internal/video"
 	"feedsystem_video_go/internal/worker"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ) *gin.Engine {
-	r := gin.Default()
+func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, uploads *upload.Service) *gin.Engine {
+	r := gin.New()
+	r.Use(gin.LoggerWithFormatter(func(p gin.LogFormatterParams) string {
+		return p.TimeStamp.Format(time.RFC3339) + " " + p.Method + " " + p.Request.URL.EscapedPath() + " " + strconv.Itoa(p.StatusCode) + " " + p.Latency.String() + "\n"
+	}), gin.Recovery())
 	if err := r.SetTrustedProxies(nil); err != nil {
 		log.Printf("SetTrustedProxies failed: %v", err)
 	}
@@ -54,8 +59,14 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ) *g
 	{
 		protectedAccountGroup.POST("/logout", accountHandler.Logout)
 		protectedAccountGroup.POST("/rename", accountHandler.Rename)
-		protectedAccountGroup.POST("/uploadAvatar", accountHandler.UploadAvatar)
-		protectedAccountGroup.POST("/updateProfile", accountHandler.UpdateProfile)
+		if uploads == nil {
+			protectedAccountGroup.POST("/uploadAvatar", accountHandler.UploadAvatar)
+			protectedAccountGroup.POST("/updateProfile", accountHandler.UpdateProfile)
+		} else {
+			uploadHandler := upload.NewHandler(uploads, cache)
+			protectedAccountGroup.POST("/applyAvatar", uploadHandler.ApplyAvatar)
+			protectedAccountGroup.POST("/updateProfile", uploadHandler.UpdateBio)
+		}
 	}
 	// video
 	videoRepository := video.NewVideoRepository(db)
@@ -75,13 +86,21 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ) *g
 	protectedVideoGroup := videoGroup.Group("")
 	protectedVideoGroup.Use(jwt.JWTAuth(accountRepository, cache))
 	{
-		protectedVideoGroup.POST("/uploadVideo", videoHandler.UploadVideo)
-		protectedVideoGroup.POST("/uploadCover", videoHandler.UploadCover)
-		protectedVideoGroup.POST("/publish", videoHandler.PublishVideo)
-		protectedVideoGroup.POST("/chunk/init", chunkHandler.InitChunkUpload)
-		protectedVideoGroup.POST("/chunk/upload", chunkHandler.UploadChunk)
-		protectedVideoGroup.POST("/chunk/status", chunkHandler.ChunkStatus)
-		protectedVideoGroup.POST("/chunk/complete", chunkHandler.CompleteChunkUpload)
+		if uploads == nil {
+			protectedVideoGroup.POST("/uploadVideo", videoHandler.UploadVideo)
+			protectedVideoGroup.POST("/uploadCover", videoHandler.UploadCover)
+			protectedVideoGroup.POST("/publish", videoHandler.PublishVideo)
+			protectedVideoGroup.POST("/chunk/init", chunkHandler.InitChunkUpload)
+			protectedVideoGroup.POST("/chunk/upload", chunkHandler.UploadChunk)
+			protectedVideoGroup.POST("/chunk/status", chunkHandler.ChunkStatus)
+			protectedVideoGroup.POST("/chunk/complete", chunkHandler.CompleteChunkUpload)
+		} else {
+			protectedVideoGroup.POST("/publish", video.PublishAssets(uploads))
+			uploadHandler := upload.NewHandler(uploads, cache)
+			uploadHandler.Register(r.Group("/uploads", jwt.JWTAuth(accountRepository, cache)))
+			r.GET("/media/assets/:id", uploadHandler.Media)
+			r.HEAD("/media/assets/:id", uploadHandler.Media)
+		}
 	}
 	// like
 	likeMQ, err := rabbitmq.NewLikeMQ(rmq)

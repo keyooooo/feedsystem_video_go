@@ -45,40 +45,33 @@ func (vs *VideoService) Publish(ctx context.Context, video *Video) error {
 		return errors.New("cover url is required")
 	}
 
-	//使用OutboxMsg模式，事务保证视频写入库和消息写入本地消息表的一致性
-	err := vs.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. 写入视频表
-		if err := tx.Create(video).Error; err != nil {
-			return err
-		}
-
-		// 2. 写入本地消息表
-		msg := OutboxMsg{
-			VideoID:    video.ID,
-			EventType:  "video_published",
-			Status:     "pending",
-			CreateTime: video.CreateTime,
-		}
-
-		if err := tx.Create(&msg).Error; err != nil {
-			return err
-		}
-
-		// 3. 提取并创建标签
-		tags := ExtractTags(video.Title + " " + video.Description)
-		for _, tagName := range tags {
-			var tag Tag
-			if err := tx.Where("name = ?", tagName).FirstOrCreate(&tag, Tag{Name: tagName}).Error; err != nil {
-				return err
-			}
-			if err := tx.Create(&VideoTag{VideoID: video.ID, TagID: tag.ID}).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+	return vs.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return publishVideo(tx, video)
 	})
-	return err
+}
 
+// publishVideo keeps the video, its tags and the timeline event atomic.
+func publishVideo(tx *gorm.DB, video *Video) error {
+	if err := tx.Create(video).Error; err != nil {
+		return err
+	}
+	msg := OutboxMsg{
+		VideoID: video.ID, EventType: "video_published", Status: "pending",
+		CreateTime: video.CreateTime,
+	}
+	if err := tx.Create(&msg).Error; err != nil {
+		return err
+	}
+	for _, tagName := range ExtractTags(video.Title + " " + video.Description) {
+		var tag Tag
+		if err := tx.Where("name = ?", tagName).FirstOrCreate(&tag, Tag{Name: tagName}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&VideoTag{VideoID: video.ID, TagID: tag.ID}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (vs *VideoService) Delete(ctx context.Context, id uint, authorID uint) error {

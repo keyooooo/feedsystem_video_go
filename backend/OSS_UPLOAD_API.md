@@ -45,3 +45,20 @@ G1 从 `origin/main` 的 `5a326071f13ea303ee9abc6ffa759e1a02af687c` 开始。G2 
 | 503 | `upload_unavailable` | OSS/STS、数据库或限流服务暂不可用，可重试 |
 
 直传部署需要真实 Bucket、可 AssumeRole 的服务端身份、精确站点的 OSS CORS 与 Nginx CSP。具体云授权、浏览器验证及部署记录随 G2/G3 交付。
+
+## G1 配置与联调
+
+G1 默认关闭。后端使用 `OSS_DIRECT_UPLOAD=true` 启用并要求 Redis 可用。配置 `OSS_REGION`、`OSS_BUCKET`、`OSS_UPLOAD_ROLE_ARN`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`。可设置 `OSS_PLAYBACK_ENDPOINT` 为绑定到该 Bucket 的公网 HTTPS 域名，`OSS_FFPROBE_PATH` 默认为 `ffprobe`。浏览器只使用响应内的临时 STS 字段。
+
+服务端身份需要以下权限，资源均限定到配置中的 Bucket：
+
+- `sts:AssumeRole` 限定到上传角色 ARN。该角色的信任策略允许服务端身份承担角色。
+- `oss:GetObject` 限定到 `direct-upload/staging/*` 与 `direct-upload/assets/*`。
+- `oss:PutObject` 和 `oss:DeleteObject` 限定到 `direct-upload/assets/*`。
+- 上传角色只允许 `oss:PutObject`、`oss:ListParts`、`oss:AbortMultipartUpload` 操作 `direct-upload/staging/*`。后端的会话策略把资源进一步收紧到单个确切的 Key，图片凭据只发 `oss:PutObject`。
+
+使用从未启用版本控制的私有 Bucket，启用阻止公共访问。仅对 `direct-upload/staging/` 配置两天后清理对象和未完成分片，避免规则触及可发布资产或既有视频。申请额度按声明大小计算，OSS 写入可能超过声明大小，完成时拒绝超额对象。配置 staging 生命周期与实际存储、请求告警。单进程最多同时验证两个对象。视频验证会从 OSS 内网读取已复制对象到临时目录，每个最多 200 MiB，为两个并发校验留出磁盘余量。
+
+授权、查询、续期使用常规 API 超时。React 对完成校验使用至少 100 秒的请求超时，只有资产进入 `ready` 或 `published` 后才可继续。中断请求可重新查询或重试。发布与头像应用通过 MySQL 事务登记，给编辑资料接口传 `bio` 即可。播放遇到下载头或浏览器兼容性问题时，使用经真实浏览器验证的 OSS 绑定域名。
+
+**测试边界**。Go HTTP 集成用专用测试数据库，云对象和 STS 用 Mock。正式 Bucket 端的权限隔离、真实凭据、浏览器 CORS、OSS Range 与签名过期恢复需要独立验收。

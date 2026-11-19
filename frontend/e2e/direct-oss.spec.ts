@@ -397,7 +397,12 @@ test("OSS direct avatar upload uses a separate staged asset and applies after va
 test("OSS direct playback refreshes its stable media URL on an expired seek and preserves pause", async ({
   page,
   request: api,
+  browserName,
 }) => {
+  test.skip(
+    browserName === "webkit" && process.platform === "linux",
+    "The Linux GStreamer engine reported no seekable range for the HTTP fixture. The macOS WebKit job checks native seeks.",
+  );
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
       value: {
@@ -431,7 +436,7 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
     if (url.pathname === stablePath)
       refresh.push(url.searchParams.has("resolve"));
   });
-  if (process.env.E2E_BASE_URL) {
+  if (process.env.E2E_BASE_URL || process.env.E2E_REAL_MEDIA) {
     const range = await api.get(stablePath, {
       headers: { Range: "bytes=0-1" },
     });

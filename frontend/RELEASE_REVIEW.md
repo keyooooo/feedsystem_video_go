@@ -33,7 +33,7 @@
 
 ## 后续直连 OSS 的实现边界
 
-现有 `src/react/upload.ts` 与发布页面分离；后续可增加 OSS 上传适配层，并保留现有后端分片通道用于回退。不要将应用 API 请求客户端直接复用于 OSS，以免携带应用 Bearer 凭据。
+现有 `src/react/upload.ts` 与发布页面分离；后续可增加 OSS 上传适配层，在未启用直传配置的环境中沿用本地上传。不要将应用 API 请求客户端直接复用于 OSS，以免携带应用 Bearer 凭据。
 
 1. 后端在鉴权和配额检查后签发短期 STS 或预签名上传信息，限定用户对象前缀、权限、有效期、大小与类型。长期 AccessKey 仅在服务端或云角色中保存，绝不放入 `VITE_*`、仓库或浏览器包。
 2. OSS CORS 只允许正式站点及确有需要的预览站点、方法和请求头，暴露分片所需的 ETag。CSP 的 `connect-src` 按实际 Bucket/CDN 精确放行，不为将来的能力预先添加任意域名。
@@ -47,7 +47,7 @@
 - React 默认构建入口已经切换；`npm ci && npm run build` 输出 `frontend/dist`，生产通过 `frontend/Dockerfile` 构建 Nginx 镜像。同源 `/api` 与 `/static` 代理到 Compose 内部的 `backend:8080`。`API_PROXY_TARGET` 只用于本地 Vite，不用于改变生产 Nginx 上游。
 - 在干净、确认过提交 SHA 的工作树构建镜像，记录并保存镜像 digest；不要直接从存在未提交部署/OSS 草稿的主目录构建。先预发布验证，再部署；发布期间保留上一版带指纹的 JS/CSS，避免已打开页面的懒加载请求遇到旧文件被删除。
 - 回滚前端优先切回前一镜像；本次没有数据库迁移。需要撤销合并代码时，对合并提交使用 `git revert -m 1 <merge-sha>`，验证后走正常推送，避免重写共享分支历史。
-- 主工作区的未提交草稿保持原样，其本地 `server_test` 不会被强制重置。远程合并后不要在该目录盲目拉取或覆盖；后续 React/OSS 开发应从新的 `origin/server_test` 创建干净分支，逐项迁移并测试草稿。
+- 主工作区的未提交草稿保持原样，其本地 `server_test` 不会被强制重置。远程合并后不要在该目录盲目拉取或覆盖；后续 React/OSS 开发应从最新的 `origin/main` 创建干净分支，逐项迁移并测试草稿，PR 指向 `main`。
 
 ## 验证记录
 

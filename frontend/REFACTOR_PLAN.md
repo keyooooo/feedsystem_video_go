@@ -41,5 +41,5 @@ Retain all existing URLs and paging contracts. React preview runs with Vite reac
 - Follow-up reliability, dependency and production security fixes are committed on frontend_refactor through edf8a63.
 - Source CI 44457575467 passed: Go vet/race, dependency audit, lint/types, 32 unit/component cases, 32 development-browser cases and 38 production-image browser cases across Chromium/WebKit.
 - Dedicated-account live integration and actual server video playback passed again. Original backend and Compose baseline are preserved.
-- React is ready for integration into server_test as the continuing full-stack development base. Public deployment remains gated by the concrete production issues in RELEASE_REVIEW.md (TLS, secrets, sessions, upload authorization and operations).
-- The primary worktree's uncommitted deployment/OSS/Vue drafts are preserved; use a clean worktree based on the integrated server_test for future features. The merge's own CI must also pass before delivery.
+- React was integrated via server_test. Future work starts from the latest origin/main and targets main. Public deployment remains gated by the concrete production issues in RELEASE_REVIEW.md (TLS, secrets, sessions, upload authorization and operations).
+- The primary worktree's uncommitted deployment/OSS/Vue drafts are preserved; use a clean worktree based on the latest origin/main for future features. The merge's own CI must also pass before delivery.

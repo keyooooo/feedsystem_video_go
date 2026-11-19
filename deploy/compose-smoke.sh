@@ -12,7 +12,7 @@ export OSS_BUCKET=smoke-bucket
 export OSS_UPLOAD_ROLE_ARN=acs:ram::123456789:role/ci-upload
 export OSS_ACCESS_KEY_ID=ci-synthetic-id
 export OSS_ACCESS_KEY_SECRET=ci-synthetic-secret
-export MYSQL_IMAGE=mysql:8.0
+export MYSQL_IMAGE="${MYSQL_IMAGE:-mysql:8.4.13@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902}"
 export REDIS_IMAGE=redis:7.4-alpine
 export RABBITMQ_IMAGE=rabbitmq:4.4.1-alpine
 for name in MYSQL_ROOT_PASSWORD MYSQL_PASSWORD REDIS_PASSWORD RABBITMQ_PASS JWT_SECRET; do
@@ -59,6 +59,10 @@ assert all(not service.get("ports") for name, service in services.items() if nam
 assert services["frontend"]["ports"][0]["host_ip"] == "127.0.0.1"'
 "${public[@]}" config --quiet
 "${public[@]}" up --wait --wait-timeout 240
+
+mysql_version="$("${public[@]}" exec -T mysql sh -ec \
+  'MYSQL_PWD="$MYSQL_PASSWORD" mysql -h 127.0.0.1 -u "$MYSQL_USER" -Nse "SELECT VERSION()"')"
+[[ "$mysql_version" == 8.4.* ]]
 
 http_port="$("${public[@]}" port frontend 80)"
 tls_port="$("${public[@]}" port frontend 443)"

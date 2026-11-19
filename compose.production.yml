@@ -28,7 +28,7 @@ x-app-dependencies: &app-dependencies
 services:
   mysql:
     <<: *runtime
-    image: ${MYSQL_IMAGE:?set a pinned MySQL 8.0 image}
+    image: ${MYSQL_IMAGE:?set a pinned MySQL 8.4 LTS image}
     environment:
       MYSQL_DATABASE: feedsystem
       MYSQL_USER: feedsystem_app

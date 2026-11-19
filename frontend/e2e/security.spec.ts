@@ -28,7 +28,7 @@ test.describe("production image security", () => {
     );
     const missing = await request.get("/assets/no-such-chunk.js");
     expect(missing.status()).toBe(404);
-    expect(missing.headers()["cache-control"]).not.toContain("immutable");
+    expect(missing.headers()["cache-control"] ?? "").not.toContain("immutable");
     expect(missing.headers()["x-content-type-options"]).toBe("nosniff");
     const api = await request.get("/api/healthz");
     expect(await api.json()).toEqual({ status: "ok" });

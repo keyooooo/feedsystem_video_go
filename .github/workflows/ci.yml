@@ -54,22 +54,34 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Install media verification tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Test
-        env:
-          OSS_TEST_MYSQL_DSN: upload_test:upload-test-password@tcp(127.0.0.1:${{ job.services.mysql.ports[3306] }})/feedsystem_upload_test?parseTime=true
-        run: go test -race -count=1 ./...
-
-      - name: Go vulnerability scan
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
-
       - name: Build API and worker images
         working-directory: .
         run: |
           docker build --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg GOSUMDB=sum.golang.org -f backend/Dockerfile --target api -t feedsystem-api:ci .
           docker build --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg GOSUMDB=sum.golang.org -f backend/Dockerfile --target worker -t feedsystem-worker:ci .
+
+      - name: Test
+        env:
+          OSS_TEST_MYSQL_DSN: upload_test:upload-test-password@tcp(127.0.0.1:${{ job.services.mysql.ports[3306] }})/feedsystem_upload_test?parseTime=true
+        run: |
+          probe_dir="$(mktemp -d "$RUNNER_TEMP/media-probe.XXXXXX")"
+          trap 'rm -rf -- "$probe_dir"' EXIT
+          mkdir "$probe_dir/bin" "$probe_dir/files"
+          export TMPDIR="$probe_dir/files"
+          export PATH="$probe_dir/bin:$PATH"
+          cat > "$probe_dir/bin/ffprobe" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker run --rm --network none --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$TMPDIR,target=$TMPDIR,readonly" \
+            --entrypoint /usr/bin/ffprobe feedsystem-api:ci "$@"
+          EOF
+          chmod +x "$probe_dir/bin/ffprobe"
+          ffprobe -version
+          go test -race -count=1 ./...
+
+      - name: Go vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
 
   frontend:
     name: Frontend

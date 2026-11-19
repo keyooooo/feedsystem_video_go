@@ -35,3 +35,11 @@ Retain all existing URLs and paging contracts. React preview runs with Vite reac
 - Existing backend and docker-compose.yml remain identical to server_test.
 
 - Default-entry cutover locally validated: strict source/config/browser-test types, lint, 22 unit/component tests, 12 Chromium cases and production build. Added clipboard fallback and mute/playhead regression coverage. Final cutover CI pending at commit time.
+
+
+## Release review, 2026-11-19
+- Follow-up reliability, dependency and production security fixes are committed on frontend_refactor through edf8a63.
+- Source CI 44457575467 passed: Go vet/race, dependency audit, lint/types, 32 unit/component cases, 32 development-browser cases and 38 production-image browser cases across Chromium/WebKit.
+- Dedicated-account live integration and actual server video playback passed again. Original backend and Compose baseline are preserved.
+- React is ready for integration into server_test as the continuing full-stack development base. Public deployment remains gated by the concrete production issues in RELEASE_REVIEW.md (TLS, secrets, sessions, upload authorization and operations).
+- The primary worktree's uncommitted deployment/OSS/Vue drafts are preserved; use a clean worktree based on the integrated server_test for future features. The merge's own CI must also pass before delivery.

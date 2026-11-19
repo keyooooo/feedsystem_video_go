@@ -55,4 +55,11 @@
 - npm audit：当前锁文件 0 项告警，包含开发依赖（2026-11-19）。
 - 真实服务器：使用既有专用账号验证登录/续期、资料、三种 Feed、关注/取消、私信、6MB 两片上传/续传状态/合并、封面、发布、Range、点赞/取消、评论/删除；只读 Chromium 验证实际播放及桌面/手机截图。没有删除接口的视频和私信保留在专用测试账号下；未使用普通用户数据。凭据与联调报告未提交。
 - 第一批修复提交 `b2530f5` 的 CI 已通过后端及 Chromium/WebKit 功能回归；容器刚启动时连接重置暴露了原 smoke 就绪检查仅重试拒绝连接的缺陷。追加修复对启动期连接重置也进行有界重试，失败输出容器日志；不将该次失败记为镜像验收通过。
-- 本地 Docker/完整 WebKit 系统依赖不可用，生产镜像与 WebKit 由 GitHub Actions 验证；不能将本地未执行的镜像测试算作通过。远程检查及最终合并 SHA 在验收完成后补充。
+- 本地 Docker/完整 WebKit 系统依赖不可用，生产镜像与 WebKit 由 GitHub Actions 验证；不能将本地未执行的镜像测试算作通过。最终通过的远程检查与合并记录在下方登记；合并提交 SHA 可通过 `git log --first-parent origin/server_test` 核对。
+
+### 合并门禁通过记录
+
+- 修复后的来源提交：`edf8a630dd754cb6d966b12c249b4b28904f72ff`（包含 `b2530f5` 可靠性/依赖修复、`0030cac` 镜像加固及 `edf8a63` 测试断言修复）。
+- [来源提交 CI 44457575467](https://github.com/keyooooo/feedsystem_video_go/actions/runs/44457575467) 全部通过：Go vet/race 测试、依赖扫描、lint/types、32 项单元/组件测试、开发服务器双浏览器 32 项、生产 Nginx 双浏览器 38 项（含实际 CSP 阻断、文本注入、安全头/缓存和 404 检查），以及镜像构建、代理与 Range 验证。
+- 在独立集成工作树准备合并，重新通过本地 lint、类型、32 项单元/组件、16 项 Chromium 与生产构建。后端及 `docker-compose.yml` 与目标基线一致；主工作区草稿哈希前后相同。
+- 本次合并保留迁移提交历史，并在合并中补充本文、代理约定与计划的验收记录；没有改变已通过来源 CI 的应用或镜像代码。合并后 `server_test` 的独立 CI 仍必须通过才交付；可在 [server_test 工作流记录](https://github.com/keyooooo/feedsystem_video_go/actions?query=branch%3Aserver_test) 核对对应合并 SHA。

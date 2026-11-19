@@ -4,6 +4,7 @@ import (
 	"context"
 	"feedsystem_video_go/internal/account"
 	"feedsystem_video_go/internal/auth"
+	"feedsystem_video_go/internal/config"
 	"feedsystem_video_go/internal/feed"
 	"feedsystem_video_go/internal/message"
 	"feedsystem_video_go/internal/middleware/jwt"
@@ -26,7 +27,10 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 	r := gin.New()
 	r.Use(gin.LoggerWithFormatter(func(p gin.LogFormatterParams) string {
 		return p.TimeStamp.Format(time.RFC3339) + " " + p.Method + " " + p.Request.URL.EscapedPath() + " " + strconv.Itoa(p.StatusCode) + " " + p.Latency.String() + "\n"
-	}), gin.Recovery())
+	}), gin.CustomRecoveryWithWriter(nil, func(c *gin.Context, _ any) {
+		log.Printf("HTTP handler panic: %s %s", c.Request.Method, c.Request.URL.EscapedPath())
+		c.AbortWithStatus(500)
+	}))
 	if err := r.SetTrustedProxies(nil); err != nil {
 		log.Printf("SetTrustedProxies failed: %v", err)
 	}
@@ -34,13 +38,18 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 	r.Static("/static", "./.run/uploads")
-	// rate_limit
-	loginLimiter := ratelimit.Limit(cache, "account_login", 10, time.Minute, ratelimit.KeyByIP)
-	registerLimiter := ratelimit.Limit(cache, "account_register", 5, time.Hour, ratelimit.KeyByIP)
+	limit := ratelimit.Limit
+	if config.IsProduction() {
+		limit = ratelimit.LimitStrict
+	}
+	loginLimiter := limit(cache, "account_login", 10, time.Minute, ratelimit.KeyByIP)
+	registerLimiter := limit(cache, "account_register", 5, time.Hour, ratelimit.KeyByIP)
+	refreshLimiter := limit(cache, "account_refresh", 30, time.Minute, ratelimit.KeyByIP)
+	messageLimiter := limit(cache, "message_write", 30, time.Minute, ratelimit.KeyByAccount)
 
-	likeLimiter := ratelimit.Limit(cache, "like_write", 30, time.Minute, ratelimit.KeyByAccount)
-	commentLimiter := ratelimit.Limit(cache, "comment_write", 10, time.Minute, ratelimit.KeyByAccount)
-	socialLimiter := ratelimit.Limit(cache, "social_write", 20, time.Minute, ratelimit.KeyByAccount)
+	likeLimiter := limit(cache, "like_write", 30, time.Minute, ratelimit.KeyByAccount)
+	commentLimiter := limit(cache, "comment_write", 10, time.Minute, ratelimit.KeyByAccount)
+	socialLimiter := limit(cache, "social_write", 20, time.Minute, ratelimit.KeyByAccount)
 
 	// account
 	accountRepository := account.NewAccountRepository(db)
@@ -54,7 +63,7 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 		accountGroup.POST("/changePassword", accountHandler.ChangePassword)
 		accountGroup.POST("/findByID", accountHandler.FindByID)
 		accountGroup.POST("/findByUsername", accountHandler.FindByUsername)
-		accountGroup.POST("/refresh", accountHandler.Refresh)
+		accountGroup.POST("/refresh", refreshLimiter, accountHandler.Refresh)
 		if secureSessions {
 			accountGroup.POST("/logout", accountHandler.LogoutCookie)
 		}
@@ -217,7 +226,7 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 	protectedMessageGroup := messageGroup.Group("")
 	protectedMessageGroup.Use(jwt.JWTAuth(accountRepository, cache))
 	{
-		protectedMessageGroup.POST("/send", messageHandler.Send)
+		protectedMessageGroup.POST("/send", messageLimiter, messageHandler.Send)
 		protectedMessageGroup.POST("/list", messageHandler.List)
 	}
 	//worker

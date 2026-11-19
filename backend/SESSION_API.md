@@ -1,6 +1,6 @@
 # HTTPS Cookie 会话
 
-在现有 Go 服务设置 `SESSION_COOKIE_ORIGIN=https://demo.example.com`，在 React 镜像构建设置 `VITE_SECURE_SESSIONS=true`。两项同步启用。生产入口须验证证书及同源 HTTPS。旧版环境继续使用已有令牌协议。
+在现有 Go 服务设置 `SESSION_COOKIE_ORIGIN=https://demo.example.com`，在 React 镜像构建设置 `VITE_SECURE_SESSIONS=true`。两项同步启用。生产入口须验证证书及同源 HTTPS。发布脚本用 `RELEASE_SECURE_SESSIONS=true` 构建该 React 镜像，公开 Compose 从 `FEEDSYSTEM_PUBLIC_HOST` 生成 Go 的会话来源。旧版环境继续使用已有令牌协议。详见[部署与回滚](../deploy/README.md)。
 
 | 请求 | 内容 | 成功响应 |
 | --- | --- | --- |

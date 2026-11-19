@@ -28,8 +28,14 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# Local deployment configuration and backups
 .env
+.env.*
+!.env.example
+!.env.production.example
+/deploy/backups/
+*.pem
+*.key
 
 # Editor/IDE
 .idea/

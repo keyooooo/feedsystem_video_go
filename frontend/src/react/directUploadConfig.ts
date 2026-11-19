@@ -3,8 +3,7 @@ export const directUploadEnabled =
 export const cancelUpload = Symbol("cancel upload");
 
 export function mediaPath(value: string | undefined) {
-  if (!directUploadEnabled || !value || !/^https?:\/\//i.test(value))
-    return value;
+  if (!value || !/^https?:\/\//i.test(value)) return value;
   try {
     const url = new URL(value);
     if (url.pathname.startsWith("/static/")) return url.pathname + url.search;

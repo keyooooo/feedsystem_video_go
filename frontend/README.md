@@ -38,7 +38,9 @@ npm run build
 npm run verify
 ```
 
-浏览器测试使用自主生成的 MP4/封面与独立 Mock，覆盖四种视口、实际播放、发布、离页取消、焦点和 axe 检查。截图及 trace 存放在忽略的 `test-results/`。CI 同时运行 Chromium、WebKit 和生产镜像路由/API/Range smoke test。
+浏览器测试使用自主生成的 MP4/封面与独立 Mock，覆盖四种视口、实际播放、发布、离页取消、焦点和 axe 检查。截图及 trace 存放在忽略的 `test-results/`。CI 同时运行 Chromium、WebKit，并针对实际生产镜像重复功能回归，检查 CSP、文本注入、缓存、安全响应头和媒体 Range。
+
+`npm audit --audit-level=high` 用于依赖安全门禁。生产镜像测试在安装 Playwright 两个浏览器及系统依赖后，从仓库根目录执行 `bash frontend/scripts/container-smoke.sh`。默认开发服务器会跳过仅适用于 Nginx 的安全用例；镜像检查会运行这些用例。
 
 真实服务器联调显式执行 `npm run test:live`，只使用专用账号和合成作品，凭据保存在被忽略的 `.e2e-accounts.local`，权限 600。不存在删除 API 的视频与私信会保留在测试账号下；可撤销的关注、点赞和评论会清理。运行 `npm run test:live:browser` 可只读验证已发布测试视频与桌面/手机截图。
 
@@ -52,7 +54,7 @@ docker build -f frontend/Dockerfile -t feedsystem-frontend .
 
 镜像 smoke test 使用合成哨兵文件验证 `*.local`、本地环境文件和测试产物不会进入构建层。
 
-保持现有 Compose 与后端服务配置，Nginx 托管 React 构建产物，支持 history URL 回退，并代理 `/api` 与 `/static`。本次重构不自动替换服务器容器。
+保持现有 Compose 与后端服务配置，Nginx 托管 React 构建产物，支持 history URL 回退，并代理 `/api` 与 `/static`。本次重构不自动替换服务器容器。公开上线前必须完成 [发布评估](RELEASE_REVIEW.md) 中的 HTTPS、密钥、会话、上传和运维验收。
 
 ## 维护
 

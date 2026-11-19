@@ -110,6 +110,13 @@ func main() {
 	} else {
 		log.Printf("Config loaded from file: %s", configPath)
 	}
+	production := config.IsProduction()
+	if production {
+		if err := cfg.ValidateProduction(usedDefault, false); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	// 连接数据库（带重试）
 	var sqlDB *gorm.DB
 	connectWithRetry("MySQL", 10, func() error {
@@ -136,6 +143,10 @@ func main() {
 			log.Printf("Redis connected (popularity worker enabled)")
 		}
 	}
+	if production && cache == nil {
+		log.Fatal("production Worker requires Redis")
+	}
+
 	// 连接 RabbitMQ（带重试）
 	url := "amqp://" + cfg.RabbitMQ.Username + ":" + cfg.RabbitMQ.Password + "@" + cfg.RabbitMQ.Host + ":" + strconv.Itoa(cfg.RabbitMQ.Port) + "/"
 	var conn *amqp.Connection
@@ -205,8 +216,15 @@ func main() {
 		})
 	}
 
-	// 等待退出信号
-	<-ctx.Done()
+	if production {
+		select {
+		case <-ctx.Done():
+		case <-conn.NotifyClose(make(chan *amqp.Error, 1)):
+			log.Fatal("RabbitMQ connection lost; restarting Worker")
+		}
+	} else {
+		<-ctx.Done()
+	}
 	log.Printf("Worker shutting down...")
 	time.Sleep(2 * time.Second) // 等待正在处理的消息完成
 	log.Printf("Worker stopped")

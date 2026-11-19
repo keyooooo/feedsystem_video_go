@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"feedsystem_video_go/internal/config"
 	"feedsystem_video_go/internal/db"
 	apphttp "feedsystem_video_go/internal/http"
@@ -10,11 +11,16 @@ import (
 	"feedsystem_video_go/internal/observability"
 	"feedsystem_video_go/internal/upload"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 func main() {
@@ -37,6 +43,13 @@ func main() {
 		log.Printf("Config File %s not found, using default local config", configPath)
 	} else {
 		log.Printf("Config loaded from file: %s", configPath)
+	}
+
+	production := config.IsProduction()
+	if production {
+		if err := cfg.ValidateProduction(usedDefault, true); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	// 连接数据库
@@ -78,6 +91,10 @@ func main() {
 		log.Printf("RabbitMQ connected")
 	}
 
+	if production && (cache == nil || rmq == nil) {
+		log.Fatal("production API requires Redis and RabbitMQ")
+	}
+
 	// Pprof
 	pprofServer, err := observability.NewPprofServer(
 		"API",
@@ -116,8 +133,60 @@ func main() {
 		}
 	}
 	r := apphttp.SetRouter(sqlDB, cache, rmq, uploads)
+	if production {
+		r.RemoteIPHeaders = []string{"X-Forwarded-For"}
+		if err := r.SetTrustedProxies([]string{os.Getenv("APP_TRUSTED_PROXY")}); err != nil {
+			log.Fatal("invalid APP_TRUSTED_PROXY")
+		}
+		conn, err := sqlDB.DB()
+		if err != nil {
+			log.Fatal("could not obtain the MySQL pool")
+		}
+		r.GET("/readyz", func(c *gin.Context) {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+			defer cancel()
+			if rmq.Conn.IsClosed() || conn.PingContext(ctx) != nil || cache.Ping(ctx) != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unavailable"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		})
+		closed := rmq.Conn.NotifyClose(make(chan *amqp.Error, 1))
+		go func() {
+			if _, ok := <-closed; ok {
+				log.Fatal("RabbitMQ connection lost; restarting API")
+			}
+		}()
+	}
+
+	address := ":" + strconv.Itoa(cfg.Server.Port)
 	log.Printf("Server is running on port %d", cfg.Server.Port)
-	if err := r.Run(":" + strconv.Itoa(cfg.Server.Port)); err != nil {
-		log.Fatalf("Failed to run server: %v", err)
+	if !production {
+		if err := r.Run(address); err != nil {
+			log.Fatalf("Failed to run server: %v", err)
+		}
+		return
+	}
+
+	server := &http.Server{
+		Addr: address, Handler: r,
+		ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 65 * time.Second,
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	listener := make(chan error, 1)
+	go func() { listener <- server.ListenAndServe() }()
+	select {
+	case err := <-listener:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("HTTP listener: %v", err)
+		}
+	case <-ctx.Done():
+		deadline, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := server.Shutdown(deadline); err != nil {
+			_ = server.Close()
+			log.Println("HTTP shutdown deadline reached")
+		}
 	}
 }

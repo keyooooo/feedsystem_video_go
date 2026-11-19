@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"feedsystem_video_go/internal/account"
+	"feedsystem_video_go/internal/auth"
 	"feedsystem_video_go/internal/feed"
 	"feedsystem_video_go/internal/message"
 	"feedsystem_video_go/internal/middleware/jwt"
@@ -45,6 +46,7 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 	accountRepository := account.NewAccountRepository(db)
 	accountService := account.NewAccountService(accountRepository, cache)
 	accountHandler := account.NewAccountHandler(accountService)
+	secureSessions := auth.CookieOrigin() != ""
 	accountGroup := r.Group("/account")
 	{
 		accountGroup.POST("/register", registerLimiter, accountHandler.CreateAccount)
@@ -53,11 +55,16 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 		accountGroup.POST("/findByID", accountHandler.FindByID)
 		accountGroup.POST("/findByUsername", accountHandler.FindByUsername)
 		accountGroup.POST("/refresh", accountHandler.Refresh)
+		if secureSessions {
+			accountGroup.POST("/logout", accountHandler.LogoutCookie)
+		}
 	}
 	protectedAccountGroup := accountGroup.Group("")
 	protectedAccountGroup.Use(jwt.JWTAuth(accountRepository, cache))
 	{
-		protectedAccountGroup.POST("/logout", accountHandler.Logout)
+		if !secureSessions {
+			protectedAccountGroup.POST("/logout", accountHandler.Logout)
+		}
 		protectedAccountGroup.POST("/rename", accountHandler.Rename)
 		if uploads == nil {
 			protectedAccountGroup.POST("/uploadAvatar", accountHandler.UploadAvatar)
@@ -239,7 +246,11 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 	}
 	sseHub := worker.NewSSEHub(db)
 	notifGroup := r.Group("/notification")
-	notifGroup.Use(sseHub.SSERequireAuth())
+	if secureSessions {
+		notifGroup.Use(jwt.JWTAuth(accountRepository, cache))
+	} else {
+		notifGroup.Use(sseHub.SSERequireAuth())
+	}
 	sseHub.RegisterRoutes(r, notifGroup)
 
 	go func() {

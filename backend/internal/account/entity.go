@@ -1,13 +1,17 @@
 package account
 
+import "time"
+
 type Account struct {
-	ID           uint   `gorm:"primaryKey" json:"id"`
-	Username     string `gorm:"unique" json:"username"`
-	Password     string `json:"-"`
-	Token        string `json:"-"`
-	RefreshToken string `json:"-"`
-	AvatarURL    string `gorm:"type:varchar(512)" json:"avatar_url,omitempty"`
-	Bio          string `gorm:"type:varchar(255)" json:"bio,omitempty"`
+	ID                   uint       `gorm:"primaryKey" json:"id"`
+	Username             string     `gorm:"unique" json:"username"`
+	Password             string     `json:"-"`
+	Token                string     `json:"-"`
+	RefreshToken         string     `json:"-"`
+	SessionRefreshDigest *string    `gorm:"type:char(64);uniqueIndex" json:"-"`
+	SessionExpiresAt     *time.Time `json:"-"`
+	AvatarURL            string     `gorm:"type:varchar(512)" json:"avatar_url,omitempty"`
+	Bio                  string     `gorm:"type:varchar(255)" json:"bio,omitempty"`
 }
 
 type CreateAccountRequest struct {
@@ -52,7 +56,7 @@ type LoginRequest struct {
 
 type LoginResponse struct {
 	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 	AccountID    uint   `json:"account_id"`
 	Username     string `json:"username"`
 }

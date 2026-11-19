@@ -85,6 +85,19 @@ func (as *AccountService) ChangePassword(ctx context.Context, username, oldPassw
 	if err != nil {
 		return err
 	}
+	if auth.CookieOrigin() != "" {
+		fields := endSessionFields()
+		fields["password"] = string(passwordHash)
+		result := as.accountRepository.db.WithContext(ctx).Model(&Account{}).
+			Where("id = ? AND password = ?", account.ID, account.Password).Updates(fields)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errInvalidSession
+		}
+		return nil
+	}
 	if err := as.accountRepository.ChangePassword(ctx, account.ID, string(passwordHash)); err != nil {
 		return err
 	}

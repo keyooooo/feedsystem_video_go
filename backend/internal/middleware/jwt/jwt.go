@@ -68,6 +68,29 @@ func SoftJWTAuth(accountRepo *account.AccountRepository, cache *rediscache.Clien
 }
 
 func check(c *gin.Context, claims *auth.Claims, tokenString string, accountRepo *account.AccountRepository, cache *rediscache.Client) {
+	if auth.CookieOrigin() != "" {
+		digest := auth.DigestToken(tokenString)
+		valid := func() bool {
+			now := time.Now()
+			if claims.ExpiresAt == nil || !claims.ExpiresAt.After(now) {
+				return false
+			}
+			a, err := accountRepo.FindByID(c.Request.Context(), claims.AccountID)
+			return err == nil && a != nil && a.SessionExpiresAt != nil &&
+				a.SessionExpiresAt.After(now) && a.Token == digest
+		}
+		if !valid() {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token has been revoked"})
+			return
+		}
+		c.Set("accountID", claims.AccountID)
+		c.Set("username", claims.Username)
+		if c.FullPath() == "/notification/stream" {
+			c.Set(auth.LiveSessionCheck, valid)
+		}
+		c.Next()
+		return
+	}
 	var key string
 	if cache != nil {
 		key = cache.Key("account:%d", claims.AccountID)

@@ -12,7 +12,7 @@
 
 ## 构建与配置
 
-服务器使用支持 `!override` 的 Docker Compose。从测试通过的提交构建三个镜像。
+服务器使用支持 `!override` 的 Docker Compose。从测试通过的提交构建三个镜像。用归档分发源代码时保留文件权限，确保 RabbitMQ 用户能读取挂载的部署配置。私密环境文件单独设置为 `600`。
 
 ```bash
 git rev-parse HEAD
@@ -29,7 +29,7 @@ deploy/build-images.sh true https://media.example.com https://media.example.com
 
 ## 预发布与迁移
 
-在发布目录核对项目名、网络和空闲端口。预发布默认使用 15174，另给 Compose 设置一个独立项目名。环境中保留旧项目可用的内存和磁盘空间。
+在发布目录核对项目名、网络和空闲端口。预发布默认使用 15174，另给 Compose 设置一个独立项目名。自定义子网时，固定的前端代理 IP 要在子网内，并位于动态地址池之外。环境中保留旧项目可用的内存和磁盘空间。
 
 ```bash
 preview=(docker compose --env-file "$HOME/.config/feedsystem/release.env" \

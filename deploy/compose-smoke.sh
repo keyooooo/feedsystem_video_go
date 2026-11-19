@@ -47,7 +47,13 @@ cleanup() {
 }
 trap cleanup EXIT
 "${compose[@]}" config --format json | python3 -c 'import json, sys
-services = json.load(sys.stdin)["services"]
+config = json.load(sys.stdin)
+services = config["services"]
+from ipaddress import ip_address, ip_network
+addr = ip_address(services["frontend"]["networks"]["default"]["ipv4_address"])
+ipam = config["networks"]["default"]["ipam"]["config"][0]
+assert addr in ip_network(ipam["subnet"])
+assert addr not in ip_network(ipam["ip_range"])
 assert set(services) == {"backend", "worker", "frontend", "mysql", "redis", "rabbitmq"}
 assert all(not service.get("ports") for name, service in services.items() if name != "frontend")
 assert services["frontend"]["ports"][0]["host_ip"] == "127.0.0.1"'

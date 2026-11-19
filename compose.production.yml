@@ -154,6 +154,7 @@ networks:
     ipam:
       config:
         - subnet: ${RELEASE_SUBNET:-172.29.63.0/24}
+          ip_range: ${RELEASE_DYNAMIC_RANGE:-172.29.63.128/25}
 
 volumes:
   mysql_data:

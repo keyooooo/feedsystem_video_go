@@ -8,6 +8,7 @@ on:
       - master
       - "codex/oss-upload-api"
       - "codex/oss-direct-upload-react"
+      - "codex/oss-multipart-signing"
       - "codex/production-release"
       - "codex/session-hardening"
 

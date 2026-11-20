@@ -84,10 +84,15 @@ export function createOSSTransport(grant: Grant, kind: UploadKind, id: string) {
     if (!Number.isFinite(remaining) || remaining <= 0)
       throw new OSSError(403, "SecurityTokenExpired");
     const headers = contentType ? { "content-type": contentType } : undefined;
+    // OSS signs flags like uploads as bare keys. The SDK uses null for
+    // that canonical form and includes an equals sign for an empty string.
+    const signingQueries = queries && Object.fromEntries(
+      Object.entries(queries).map(([key, value]) => [key, value === "" ? null : value]),
+    );
     const url = await sdk.signatureUrlV4(
       method,
       Math.min(remaining, 300),
-      { headers, queries },
+      { headers, queries: signingQueries },
       grant.key,
     );
     if (new URL(url).origin !== origin) throw new Error("对象存储签名地址无效");

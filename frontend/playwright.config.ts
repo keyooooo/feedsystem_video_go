@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 const external = process.env.E2E_BASE_URL;
 const direct = process.env.E2E_OSS_UPLOAD_ORIGIN;
+const playback = process.env.E2E_OSS_PLAYBACK_ORIGIN;
 const secure = process.env.E2E_SECURE_SESSIONS === "1";
 export default defineConfig({
   testDir: "./e2e",
@@ -26,6 +27,7 @@ export default defineConfig({
                 }
               : {}),
             ...(secure ? { VITE_SECURE_SESSIONS: "true" } : {}),
+            ...(playback ? { VITE_OSS_PLAYBACK_ORIGIN: playback } : {}),
           },
         },
         {

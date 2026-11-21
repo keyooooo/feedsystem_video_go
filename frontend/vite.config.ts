@@ -8,6 +8,8 @@ export default defineConfig(({ mode }) => {
     mode === "oss" || mode === "test" ? env.API_PROXY_TARGET : undefined;
   if (mode === "oss" && !target)
     throw new Error("请先设置 API_PROXY_TARGET，再启动 OSS 联调");
+  const upstream = target ? new URL(target) : undefined;
+  const apiPrefix = upstream?.pathname.replace(/\/+$/, "") ?? "";
   return {
     plugins: demo ? [react(), demoPreview()] : [react()],
     publicDir: demo ? "e2e/fixtures" : "public",
@@ -25,14 +27,14 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "127.0.0.1",
       ...(mode === "oss" ? { port: 5174, strictPort: true } : {}),
-      proxy: target
+      proxy: upstream
         ? {
             "/api": {
-              target,
+              target: upstream.origin,
               changeOrigin: true,
-              rewrite: (path) => path.replace(/^\/api/, ""),
+              rewrite: (path) => apiPrefix + path.replace(/^\/api(?=\/|$)/, ""),
             },
-            "/static": { target, changeOrigin: true },
+            "/static": { target: upstream.origin, changeOrigin: true },
           }
         : undefined,
     },

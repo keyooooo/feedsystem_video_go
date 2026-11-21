@@ -489,11 +489,14 @@ test("player adapts its stage to real portrait, square and landscape videos", as
       shape === "wide" ? 0 : 1,
     );
   }
-  const image = await video.boundingBox();
-  const actions = await stage
-    .getByRole("group", { name: "视频互动" })
-    .boundingBox();
-  expect(actions!.y).toBeGreaterThanOrEqual(image!.y + image!.height);
+  // Sample both edges before the smooth scroll can move the slide again.
+  const { videoBottom, actionsTop } = await stage.evaluate((element) => ({
+    videoBottom: element.querySelector("video")!.getBoundingClientRect().bottom,
+    actionsTop: element
+      .querySelector('[role="group"][aria-label="视频互动"]')!
+      .getBoundingClientRect().top,
+  }));
+  expect(actionsTop).toBeGreaterThanOrEqual(videoBottom);
   await feed.blur();
   await page.screenshot({ path: info.outputPath("home-mobile-landscape.png") });
 });

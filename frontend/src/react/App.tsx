@@ -1,5 +1,4 @@
 import {
-  NavLink,
   Link,
   Routes,
   Route,
@@ -7,17 +6,19 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { useSession, Notices } from "./ui";
+import { Avatar, useIdentity, useLoad, useSession, Notices } from "./ui";
 import { lazy, Suspense, type ReactNode } from "react";
 import {
   Play,
-  House,
   Flame,
-  PlusCircle,
+  ListOrdered,
+  Plus,
   MessageCircle,
-  User,
+  UserRound,
   Search,
 } from "lucide-react";
+import { findById } from "../api/account";
+import { NotificationButton } from "./NotificationButton";
 import s from "./App.module.css";
 
 const UploadPage = lazy(() => import("./UploadPage"));
@@ -39,6 +40,11 @@ const AuthPage = lazy(() =>
 const Settings = lazy(() =>
   import("./AccountPages").then((m) => ({ default: m.Settings })),
 );
+const destinations = [
+  { Icon: Flame, url: "/", label: "热榜" },
+  { Icon: UserRound, url: "/?feed=following", label: "关注" },
+  { Icon: ListOrdered, url: "/hot", label: "榜单总览" },
+] as const;
 function Protected({ children }: { children: ReactNode }) {
   const session = useSession(),
     location = useLocation();
@@ -56,40 +62,45 @@ function Protected({ children }: { children: ReactNode }) {
 }
 export default function App() {
   const navigate = useNavigate(),
-    session = useSession();
+    session = useSession(),
+    location = useLocation(),
+    identity = useIdentity();
+  const query = new URLSearchParams(location.search);
+  const home = location.pathname === "/";
+  const following = home && query.get("feed") === "following";
+  const activeDestination = home
+    ? following
+      ? "/?feed=following"
+      : "/"
+    : location.pathname;
+  const accountId = identity?.account_id;
+  const account = useLoad(
+    `header-account:${accountId ?? ""}:${session.revision}`,
+    () => (accountId ? findById(accountId) : Promise.resolve(null)),
+  );
+  const signIn =
+    "/account?redirect=" +
+    encodeURIComponent(location.pathname + location.search);
   return (
     <div className={s.shell}>
       <aside className={s.sidebar}>
         <Link className={s.brand} to="/">
-          <Play />
+          <Play fill="currentColor" aria-hidden="true" />
           <span>ShortVideo</span>
         </Link>
         <nav className={s.nav} aria-label="主导航">
-          {[
-            [House, "/", "推荐"],
-            [Flame, "/hot", "热榜"],
-            [PlusCircle, "/video", "发布"],
-            [MessageCircle, "/messages", "私信"],
-            [User, "/account", "我的"],
-          ].map(([Icon, url, label]) => {
-            const C = Icon as typeof House;
-            return (
-              <NavLink
-                end={url === "/" || url === "/video"}
-                key={String(url)}
-                to={String(url)}
-              >
-                <C />
-                <span>{String(label)}</span>
-              </NavLink>
-            );
-          })}
+          {destinations.map(({ Icon, url, label }) => (
+            <Link
+              key={url}
+              to={url}
+              aria-label={label}
+              aria-current={activeDestination === url ? "page" : undefined}
+            >
+              <Icon aria-hidden="true" />
+              <span>{label}</span>
+            </Link>
+          ))}
         </nav>
-        <footer>
-          发现值得停留的瞬间。
-          <br />
-          ShortVideo © 2026
-        </footer>
       </aside>
       <main className={s.main}>
         <header className={s.header}>
@@ -97,23 +108,52 @@ export default function App() {
             className={s.search}
             onSubmit={(e) => {
               e.preventDefault();
-              const q = new FormData(e.currentTarget).get("q");
-              navigate("/?q=" + encodeURIComponent(String(q || "")));
+              const keyword = String(
+                new FormData(e.currentTarget).get("q") ?? "",
+              ).trim();
+              const params = new URLSearchParams();
+              if (following) params.set("feed", "following");
+              if (keyword) params.set("q", keyword);
+              navigate({ pathname: "/", search: params.toString() });
             }}
           >
-            {" "}
             <input
+              key={location.key}
               name="q"
+              type="search"
+              defaultValue={home ? (query.get("q") ?? "") : ""}
               aria-label="搜索已加载的视频"
               placeholder="搜索已加载的视频"
             />
             <button aria-label="搜索">
-              <Search size={20} />
+              <Search size={18} aria-hidden="true" /> <span>搜索</span>
             </button>
           </form>
-          <Link to="/video">分享你的创作 ↗</Link>
+          <div className={s.headerActions}>
+            <NotificationButton signIn={signIn} />
+            <Link to="/messages" className={s.headerAction} aria-label="消息">
+              <MessageCircle size={20} aria-hidden="true" />
+              <span>消息</span>
+            </Link>
+            <Link to="/video" className={s.publishLink} aria-label="发布">
+              <Plus size={18} aria-hidden="true" />
+              <span>发布</span>
+            </Link>
+            {session.token ? (
+              <Link to="/account" className={s.accountLink} aria-label="我的">
+                <Avatar
+                  name={account.data?.username ?? identity?.username ?? "我"}
+                  url={account.data?.avatar_url}
+                />
+              </Link>
+            ) : (
+              <Link to={signIn} className={s.signInLink}>
+                登录
+              </Link>
+            )}
+          </div>
         </header>
-        <div className={s.content}>
+        <div className={home ? `${s.content} ${s.homeContent}` : s.content}>
           <Suspense
             fallback={
               <div
@@ -132,7 +172,18 @@ export default function App() {
                   </Protected>
                 }
               />
-              <Route path="/" element={<FeedPage key="recommend" />} />
+              <Route
+                path="/"
+                element={
+                  following ? (
+                    <Protected>
+                      <FeedPage />
+                    </Protected>
+                  ) : (
+                    <FeedPage />
+                  )
+                }
+              />
               <Route path="/feed" element={<Navigate to="/" replace />} />
               <Route path="/hot" element={<FeedPage key="hot" hot />} />
               <Route path="/video/:id" element={<DetailPage />} />
@@ -170,8 +221,7 @@ export default function App() {
                   <>
                     <p className={s.eyebrow}>404</p>
                     <h1>这个页面暂时找不到</h1>
-                    <p className={s.muted}>返回推荐页，继续发现精彩内容。</p>
-                    <Link to="/">返回推荐页 ↗</Link>
+                    <Link to="/">返回热榜</Link>
                   </>
                 }
               />

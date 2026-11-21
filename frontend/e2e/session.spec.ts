@@ -38,6 +38,10 @@ test("resumes a cookie session after reload and honours explicit logout when the
         json: { id: 55, username: "session-demo", bio: "" },
       });
     }
+    if (path === "/api/notification/unreadCount") {
+      expect(request.headers().authorization).toBe("Bearer " + token);
+      return route.fulfill({ json: { count: 0 } });
+    }
     if (path === "/api/account/logout") {
       return route.fulfill({
         status: 503,

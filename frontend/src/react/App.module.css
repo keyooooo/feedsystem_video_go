@@ -122,6 +122,20 @@
   align-items: center;
   gap: clamp(8px, 1.6vw, 24px);
 }
+@media (min-width: 1200px) {
+  .header {
+    display: grid;
+    grid-template-columns: minmax(300px, 1fr) minmax(0, 760px) minmax(300px, 1fr);
+    gap: 16px;
+  }
+  .search {
+    grid-column: 2;
+  }
+  .headerActions {
+    grid-column: 3;
+    justify-self: end;
+  }
+}
 .headerAction,
 .publishLink,
 .signInLink,

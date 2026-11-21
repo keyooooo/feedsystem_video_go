@@ -52,6 +52,7 @@ func (h *CommentHandler) PublishComment(c *gin.Context) {
 			c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})
 			return
 		}
+		reply.AvatarURL = user.AvatarURL
 		c.JSON(200, gin.H{"message": "comment published successfully", "comment": reply})
 		return
 	}

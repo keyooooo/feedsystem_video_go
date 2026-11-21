@@ -24,20 +24,20 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import type { FeedVideoItem, Comment, Video } from "../api/types";
+import type { FeedVideoItem, Video } from "../api/types";
 import { findById } from "../api/account";
 import { getJson } from "../api/client";
 import * as feed from "../api/feed";
 import * as video from "../api/video";
 import * as like from "../api/like";
-import * as comments from "../api/comment";
+import { CommentPanel } from "./CommentPanel";
+export { CommentPanel } from "./CommentPanel";
 import {
   Avatar,
   Empty,
   ErrorBox,
   Modal,
   useSession,
-  useIdentity,
   useLoad,
   useNotice,
   useMedia,
@@ -518,128 +518,6 @@ function Player({
       {videoElement}
       {signed && canSeek && seekBar}
       {playOverlay}
-    </>
-  );
-}
-export function CommentPanel({
-  item,
-  onClose,
-}: {
-  item: FeedVideoItem | null;
-  onClose: () => void;
-}) {
-  const epoch = useRef(0);
-  const wide = useMedia("(min-width: 1200px)");
-  const [content, setContent] = useState(""),
-    [sending, setSending] = useState(false),
-    [failure, setFailure] = useState<unknown>(null),
-    [deleting, setDeleting] = useState<number | null>(null);
-  const identity = useIdentity(),
-    session = useSession(),
-    navigate = useNavigate();
-  const result = useLoad<Comment[]>(String(item?.id || 0), () =>
-    item ? comments.listAll(item.id) : Promise.resolve([]),
-  );
-  useEffect(() => {
-    const current = ++epoch.current;
-    setContent("");
-    setFailure(null);
-    setSending(false);
-    setDeleting(null);
-    return () => {
-      epoch.current = current + 1;
-    };
-  }, [item?.id, session.revision]);
-  async function send() {
-    if (sending || !item || !content.trim()) return;
-    if (!session.token) {
-      navigate(
-        "/account?redirect=" +
-          encodeURIComponent(location.pathname + location.search),
-      );
-      return;
-    }
-    const current = epoch.current;
-    setSending(true);
-    setFailure(null);
-    try {
-      await comments.publish(item.id, content.trim());
-      if (current === epoch.current) {
-        setContent("");
-        result.reload();
-      }
-    } catch (e) {
-      if (current === epoch.current) setFailure(e);
-    } finally {
-      if (current === epoch.current) setSending(false);
-    }
-  }
-  async function remove() {
-    if (sending || !deleting) return;
-    const current = epoch.current;
-    setSending(true);
-    try {
-      await comments.remove(deleting);
-      if (current === epoch.current) {
-        setDeleting(null);
-        result.reload();
-      }
-    } catch (e) {
-      if (current === epoch.current) setFailure(e);
-    } finally {
-      if (current === epoch.current) setSending(false);
-    }
-  }
-  return (
-    <>
-      <Modal title="评论" inline={wide} open={!!item} onClose={onClose}>
-        <div className={s.dialogBody}>
-          {result.loading ? (
-            <div className={s.skeleton} />
-          ) : result.data?.length ? (
-            result.data.map((c) => (
-              <article key={c.id} className={s.comment}>
-                <strong>{c.username}</strong>
-                <p>{c.content}</p>
-                <small>{new Date(c.created_at).toLocaleString()}</small>
-                {identity?.account_id === c.author_id && (
-                  <button onClick={() => setDeleting(c.id)}>删除</button>
-                )}
-              </article>
-            ))
-          ) : (
-            <Empty title="还没有评论">
-              <p>来聊聊你的想法吧。</p>
-            </Empty>
-          )}
-          <ErrorBox error={result.error} retry={result.reload} />
-        </div>
-        <ErrorBox error={failure} />
-        <label>
-          你的评论
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="友善表达，分享想法"
-          />
-        </label>
-        <button
-          className={s.primary}
-          disabled={sending || !content.trim()}
-          onClick={send}
-        >
-          {sending ? "发送中…" : "发送评论"}
-        </button>
-      </Modal>
-      <Modal
-        title="删除这条评论？"
-        open={deleting !== null}
-        onClose={() => setDeleting(null)}
-      >
-        <button disabled={sending} onClick={remove}>
-          确认删除
-        </button>
-      </Modal>
     </>
   );
 }

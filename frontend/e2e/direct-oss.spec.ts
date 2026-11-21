@@ -427,8 +427,8 @@ test("OSS direct playback refreshes its stable media URL on an expired seek and 
       },
     }),
   );
-  await page.route("**/api/comment/listAll", (route) =>
-    route.fulfill({ json: [] }),
+  await page.route("**/api/comment/listThreads", (route) =>
+    route.fulfill({ json: { comments: [], next_cursor: 0 } }),
   );
   const refresh: boolean[] = [];
   page.on("request", (request) => {

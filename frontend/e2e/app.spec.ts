@@ -93,7 +93,8 @@ test.beforeEach(async ({ page }) => {
         username: "摄影日记",
         create_time: "2026-10-01T12:00:00Z",
       }));
-    else if (path === "/api/comment/listAll") data = [];
+    else if (path === "/api/comment/listThreads")
+      data = { comments: [], next_cursor: 0 };
     await route.fulfill({ json: data });
   });
 });
@@ -620,8 +621,8 @@ test("likes preserve state on failure and comments can retry and delete", async 
   });
   await page.route("**/api/comment/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/listAll")) {
-      await route.fulfill({ json: comments });
+    if (path.endsWith("/listThreads")) {
+      await route.fulfill({ json: { comments, next_cursor: 0 } });
       return;
     }
     if (path.endsWith("/publish")) {
@@ -751,4 +752,111 @@ test("messages respect IME and line breaks and retain failed drafts for retry", 
   await expect(composer).toHaveValue("");
   await expect(page.getByText("你好 第二行", { exact: false })).toBeVisible();
   expect(sends).toBe(2);
+});
+
+test("threaded comments page replies and retain a failed nested reply draft", async ({
+  page,
+}) => {
+  await signedIn(page);
+  const time = "2026-11-19T08:00:00Z";
+  const root = {
+    id: 50,
+    video_id: 1,
+    author_id: 1,
+    username: "楼主",
+    content: "一级评论",
+    created_at: time,
+    reply_count: 2,
+  };
+  const first = {
+    id: 51,
+    video_id: 1,
+    author_id: 3,
+    username: "第一位",
+    content: "第一条回复",
+    created_at: time,
+    root_comment_id: 50,
+    reply_to_comment_id: 50,
+    reply_to_username: "楼主",
+    reply_target_deleted: false,
+  };
+  const second = {
+    ...first,
+    id: 52,
+    username: "第二位",
+    content: "第二条回复",
+  };
+  const nested = {
+    ...first,
+    id: 53,
+    author_id: 1,
+    username: "verification",
+    content: "楼中楼",
+    reply_to_comment_id: 52,
+    reply_to_username: "第二位",
+  };
+  let attempts = 0;
+  await page.route("**/api/comment/listThreads", (route) =>
+    route.fulfill({ json: { comments: [root], next_cursor: 0 } }),
+  );
+  await page.route("**/api/comment/listReplies", (route) => {
+    const cursor = route.request().postDataJSON().cursor;
+    return route.fulfill({
+      json: cursor
+        ? { comments: [second], next_cursor: 0 }
+        : { comments: [first], next_cursor: first.id },
+    });
+  });
+  await page.route("**/api/comment/publish", (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      video_id: 1,
+      content: "楼中楼",
+      reply_to_comment_id: second.id,
+    });
+    attempts++;
+    return attempts === 1
+      ? route.fulfill({ status: 503, json: { error: "暂时无法回复" } })
+      : route.fulfill({ json: { message: "ok", comment: nested } });
+  });
+  await page.route("**/api/comment/delete", (route) => {
+    expect(route.request().postDataJSON()).toEqual({ comment_id: root.id });
+    return route.fulfill({ json: { message: "ok" } });
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "打开评论" }).first().click();
+  await page.getByRole("button", { name: "展开 2 条回复" }).click();
+  await expect(page.getByText("第一条回复", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "加载更多回复" }).click();
+  await page
+    .locator("article")
+    .filter({ hasText: "第二条回复" })
+    .getByRole("button", { name: "回复", exact: true })
+    .click();
+  const input = page.getByRole("textbox", { name: "你的评论" });
+  await expect(input).toHaveAttribute("placeholder", "回复 @第二位");
+  await input.fill("楼中楼");
+  const send = page.getByRole("button", { name: "发送回复" });
+  await send.click();
+  await expect(page.getByRole("alert")).toHaveText("暂时无法回复");
+  await expect(input).toHaveValue("楼中楼");
+  await send.click();
+  await expect(page.getByText("楼中楼", { exact: false })).toBeVisible();
+  await expect(input).toHaveValue("");
+  await page.getByRole("button", { name: "收起回复" }).click();
+  await expect(
+    page.getByRole("button", { name: "展开 3 条回复" }),
+  ).toBeVisible();
+  await page
+    .locator("article")
+    .filter({ hasText: root.content })
+    .getByRole("button", { name: "删除", exact: true })
+    .click();
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await expect(page.getByText("该评论已删除")).toBeVisible();
+  await page.getByRole("button", { name: "展开 3 条回复" }).click();
+  await expect(page.getByText("楼中楼", { exact: false })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "回复", exact: true }),
+  ).toHaveCount(0);
 });

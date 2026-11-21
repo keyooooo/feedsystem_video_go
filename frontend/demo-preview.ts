@@ -65,6 +65,9 @@ export function demoPreview(): Plugin {
             );
           case "/api/comment/listAll":
             return send(200, []);
+          case "/api/comment/listThreads":
+          case "/api/comment/listReplies":
+            return send(200, { comments: [], next_cursor: 0 });
           case "/api/video/getDetail": {
             try {
               const chunks: Buffer[] = [];

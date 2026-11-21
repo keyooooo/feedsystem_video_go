@@ -27,12 +27,17 @@ test.beforeEach(async ({ page }) => {
     });
   }
   await page.route("**/static/**", async (route) => {
-    const video = new URL(route.request().url()).pathname.endsWith(".mp4");
+    const pathname = new URL(route.request().url()).pathname;
+    const video = pathname.endsWith(".mp4");
+    const fixture = pathname.endsWith("/square.mp4")
+      ? "square.mp4"
+      : pathname.endsWith("/landscape.mp4")
+        ? "landscape.mp4"
+        : video
+          ? "clip.mp4"
+          : "poster.png";
     const bytes = readFileSync(
-      new URL(
-        video ? "./fixtures/clip.mp4" : "./fixtures/poster.png",
-        import.meta.url,
-      ),
+      new URL(`./fixtures/${fixture}`, import.meta.url),
     );
     const range = route.request().headers()["range"];
     const match = range?.match(/bytes=(\d+)-(\d*)/);
@@ -66,7 +71,14 @@ test.beforeEach(async ({ page }) => {
     let data: unknown = {};
     if (path.startsWith("/api/feed/"))
       data = { video_list: items, has_more: false, next_time: 1 };
-    else if (path === "/api/account/getProfile")
+    else if (path === "/api/account/findByID") {
+      const id = route.request().postDataJSON().id;
+      data = {
+        id,
+        username: id === 2 ? "摄影日记" : "verification",
+        avatar_url: "/static/poster.png",
+      };
+    } else if (path === "/api/account/getProfile")
       data = {
         account: { id: 2, username: "摄影日记", bio: "发现光，记录生活。" },
         video_count: 12,
@@ -117,7 +129,7 @@ for (const viewport of [
       path: info.outputPath(`home-${viewport.width}.png`),
       fullPage: true,
     });
-    const scroller = page.locator("video").first().locator("xpath=../../..");
+    const scroller = page.getByRole("region", { name: "视频流" });
     await scroller.evaluate((el) => {
       el.scrollTop = el.clientHeight * 5;
       el.dispatchEvent(new Event("scroll"));
@@ -148,11 +160,17 @@ test("hot ranking and public profile use actual API shapes", async ({
     path: info.outputPath("ranking.png"),
     fullPage: true,
   });
-  await page.getByRole("link", { name: "推荐", exact: true }).click();
+  await page.getByRole("link", { name: "热榜", exact: true }).click();
   await expect(
-    page.getByRole("tab", { name: "推荐", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
-  await page.goto("/u/2");
+    page.getByRole("link", { name: "热榜", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  const author = page.getByRole("link", { name: "查看 摄影日记 的主页" });
+  await expect(author.locator("img")).toHaveAttribute(
+    "src",
+    "/static/poster.png",
+  );
+  await author.click();
+  await expect(page).toHaveURL("/u/2");
   await expect(page.getByRole("heading", { name: "@摄影日记" })).toBeVisible();
   await expect(page.locator("article")).toHaveCount(12);
   await page.screenshot({
@@ -278,7 +296,7 @@ test("confirms SPA navigation during upload and cancels instead of publishing", 
   await expect(
     page.getByRole("button", { name: "取消上传", exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "热榜", exact: true }).click();
+  await page.getByRole("link", { name: "榜单总览", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "取消当前上传？" }),
   ).toBeVisible();
@@ -286,13 +304,15 @@ test("confirms SPA navigation during upload and cancels instead of publishing", 
   release();
   await expect(page).toHaveURL("/hot");
 });
-test("keyboard tabs, comment focus and accessibility remain usable", async ({
+test("keyboard playback navigation, comment focus and accessibility remain usable", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "推荐", exact: true }).focus();
-  await page.keyboard.press("End");
-  await expect(page.getByRole("tab", { name: "点赞榜" })).toBeFocused();
+  await page.getByRole("region", { name: "视频流" }).focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    page.getByRole("heading", { name: "热榜第 2 位" }),
+  ).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "打开评论" }).first().click();
   await expect(
@@ -354,11 +374,11 @@ test("local search does not scan subsequent feed pages without an explicit reque
   page,
 }) => {
   let nextPages = 0;
-  await page.route("**/api/feed/listLatest", async (route) => {
-    const next = route.request().postDataJSON().latest_time > 0;
+  await page.route("**/api/feed/listByPopularity", async (route) => {
+    const next = route.request().postDataJSON().offset > 0;
     if (next) nextPages++;
     await route.fulfill({
-      json: { video_list: items, has_more: !next, next_time: 1 },
+      json: { video_list: items, has_more: !next, as_of: 60, next_offset: 12 },
     });
   });
   await page.goto("/?q=no-matching-title");
@@ -369,6 +389,172 @@ test("local search does not scan subsequent feed pages without an explicit reque
   expect(nextPages).toBe(0);
   await page.getByRole("button", { name: "继续查找" }).click();
   await expect.poll(() => nextPages).toBe(1);
+});
+
+test("hot feed retries the database cursor and preserves the current slide", async ({
+  page,
+}) => {
+  const cursor = {
+    latest_popularity: 0,
+    latest_before: "2026-11-20T13:32:00Z",
+    latest_id_before: 4,
+  };
+  let attempts = 0;
+  await page.route("**/api/feed/listByPopularity", async (route) => {
+    const request = route.request().postDataJSON();
+    if (!request.latest_id_before) {
+      await route.fulfill({
+        json: {
+          video_list: items.slice(0, 4),
+          has_more: true,
+          as_of: 0,
+          next_offset: 0,
+          next_latest_popularity: cursor.latest_popularity,
+          next_latest_before: cursor.latest_before,
+          next_latest_id_before: cursor.latest_id_before,
+        },
+      });
+      return;
+    }
+    expect(request).toEqual({ limit: 10, as_of: 0, offset: 0, ...cursor });
+    attempts++;
+    if (attempts === 1) {
+      await route.fulfill({ status: 503, json: { error: "热榜暂时无法加载" } });
+    } else {
+      await route.fulfill({
+        json: { video_list: items.slice(3, 5), has_more: false },
+      });
+    }
+  });
+  await page.goto("/");
+  const feed = page.getByRole("region", { name: "视频流" });
+  await feed.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("alert")).toContainText("热榜暂时无法加载");
+  await expect(
+    page.getByRole("heading", { name: "热榜第 2 位" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "重试" }).click();
+  await expect.poll(() => attempts).toBe(2);
+  await expect(
+    page.getByRole("heading", { name: "热榜第 2 位" }),
+  ).toBeVisible();
+  await feed.focus();
+  for (const rank of [3, 4, 5]) {
+    await page.keyboard.press("ArrowDown");
+    await expect(
+      page.getByRole("heading", { name: `热榜第 ${rank} 位` }),
+    ).toBeVisible();
+  }
+  await expect(
+    page.getByRole("heading", { name: "城市里的光 5" }),
+  ).toBeVisible();
+});
+
+test("player adapts its stage to real portrait, square and landscape videos", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const shapes = ["tall", "square", "wide"] as const;
+  const sources = [
+    "/static/fixture.mp4",
+    "/static/square.mp4",
+    "/static/landscape.mp4",
+  ];
+  await page.route("**/api/feed/listByPopularity", (route) =>
+    route.fulfill({
+      json: {
+        video_list: items
+          .slice(0, 3)
+          .map((item, index) => ({ ...item, play_url: sources[index] })),
+        has_more: false,
+      },
+    }),
+  );
+  await page.goto("/");
+  const feed = page.getByRole("region", { name: "视频流" });
+  const stage = feed.locator("section:not([inert]) [data-player]");
+  const video = stage.locator("video");
+  await expect(stage).toHaveAttribute("data-video-shape", "tall");
+  const height = (await stage.boundingBox())!.height;
+  for (const shape of shapes) {
+    if (shape !== "tall") {
+      await feed.focus();
+      await page.keyboard.press("ArrowDown");
+    }
+    await expect(stage).toHaveAttribute("data-video-shape", shape);
+    expect((await stage.boundingBox())!.height).toBe(height);
+    await expect(video).toHaveCSS("object-fit", "contain");
+    await expect(stage.locator('img[aria-hidden="true"]')).toHaveCount(
+      shape === "wide" ? 0 : 1,
+    );
+  }
+  // Sample both edges before the smooth scroll can move the slide again.
+  const { videoBottom, actionsTop } = await stage.evaluate((element) => ({
+    videoBottom: element.querySelector("video")!.getBoundingClientRect().bottom,
+    actionsTop: element
+      .querySelector('[role="group"][aria-label="视频互动"]')!
+      .getBoundingClientRect().top,
+  }));
+  expect(actionsTop).toBeGreaterThanOrEqual(videoBottom);
+  await feed.blur();
+  await page.screenshot({ path: info.outputPath("home-mobile-landscape.png") });
+});
+
+test("signed-in notification badge clears after marking a notification read", async ({
+  page,
+}) => {
+  await signedIn(page);
+  let read = false;
+  await page.route("**/api/notification/*", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith("/unreadCount")) {
+      await route.fulfill({ json: { count: read ? 0 : 1 } });
+    } else if (pathname.endsWith("/list")) {
+      await route.fulfill({
+        json: {
+          notifications: [
+            {
+              id: 17,
+              content: "有人点赞了你的作品",
+              is_read: read,
+              created_at: "2026-11-20T13:32:00Z",
+            },
+          ],
+        },
+      });
+    } else {
+      expect(route.request().postDataJSON()).toEqual({ id: 17 });
+      read = true;
+      await route.fulfill({ json: { message: "ok" } });
+    }
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("link", { name: "我的", exact: true }).locator("img"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "通知，1 条未读" }).click();
+  const dialog = page.getByRole("dialog", { name: "通知" });
+  await dialog.getByRole("button", { name: "有人点赞了你的作品" }).click();
+  await expect(dialog.getByText("有人点赞了你的作品")).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "有人点赞了你的作品" }),
+  ).toHaveCount(0);
+  await dialog.getByRole("button", { name: "关闭" }).click();
+  await expect(
+    page.getByRole("button", { name: "通知", exact: true }),
+  ).toBeVisible();
+});
+
+test("the guest following entry carries its return URL into sign-in", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("link", { name: "登录", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "关注", exact: true }).click();
+  await expect(page).toHaveURL("/account?redirect=%2F%3Ffeed%3Dfollowing");
 });
 
 // Every browser flow also runs against the actual Nginx image, with its enforced CSP.

@@ -17,7 +17,14 @@ export async function listLikesCount(input: { limit: number; likes_count_before?
   return { ...res, video_list: normalizeFeedVideoList(res.video_list) }
 }
 
-export async function listByPopularity(input: { limit: number; as_of: number; offset: number }) {
+export async function listByPopularity(input: {
+  limit: number
+  as_of: number
+  offset: number
+  latest_popularity?: number
+  latest_before?: string
+  latest_id_before?: number
+}) {
   const res = await postJson<ListByPopularityResponse>('/feed/listByPopularity', input)
   return { ...res, video_list: normalizeFeedVideoList(res.video_list) }
 }

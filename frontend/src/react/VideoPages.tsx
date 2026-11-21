@@ -1,6 +1,11 @@
 import FollowButton from "./FollowButton";
-import * as Tabs from "@radix-ui/react-tabs";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Link,
   useNavigate,
@@ -12,16 +17,21 @@ import {
   MessageCircle,
   Share2,
   Play,
+  Pause,
+  Maximize,
+  Minimize,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import type { FeedVideoItem, Comment, Video } from "../api/types";
+import { findById } from "../api/account";
 import { getJson } from "../api/client";
 import * as feed from "../api/feed";
 import * as video from "../api/video";
 import * as like from "../api/like";
 import * as comments from "../api/comment";
 import {
+  Avatar,
   Empty,
   ErrorBox,
   Modal,
@@ -33,43 +43,39 @@ import {
 } from "./ui";
 import { mediaPath } from "./directUploadConfig";
 import s from "./App.module.css";
-export type FeedMode = "recommend" | "following" | "likes" | "hot";
+export type FeedMode = "following" | "hot";
 export type Cursor = {
   next_time?: number;
-  next_likes_count_before?: number;
-  next_id_before?: number;
   as_of?: number;
   next_offset?: number;
+  next_latest_popularity?: number;
+  next_latest_before?: string;
+  next_latest_id_before?: number;
 };
 export function pagingInput(mode: FeedMode, cursor: Cursor, reset: boolean) {
-  return mode === "hot"
-    ? {
-        limit: 10,
-        as_of: reset ? 0 : cursor.as_of || 0,
-        offset: reset ? 0 : cursor.next_offset || 0,
-      }
-    : mode === "likes"
+  if (mode === "following")
+    return { limit: 10, latest_time: reset ? 0 : (cursor.next_time ?? 0) };
+  return {
+    limit: 10,
+    as_of: reset ? 0 : (cursor.as_of ?? 0),
+    offset: reset ? 0 : (cursor.next_offset ?? 0),
+    ...(!reset && cursor.next_latest_before && cursor.next_latest_id_before
       ? {
-          limit: 10,
-          likes_count_before: reset
-            ? undefined
-            : cursor.next_likes_count_before,
-          id_before: reset ? undefined : cursor.next_id_before,
+          latest_popularity: cursor.next_latest_popularity ?? 0,
+          latest_before: cursor.next_latest_before,
+          latest_id_before: cursor.next_latest_id_before,
         }
-      : { limit: 10, latest_time: reset ? 0 : cursor.next_time || 0 };
+      : {}),
+  };
 }
 async function fetchPage(mode: FeedMode, cursor: Cursor, reset: boolean) {
   const input = pagingInput(mode, cursor, reset);
-  if (mode === "hot")
-    return feed.listByPopularity(
-      input as { limit: number; as_of: number; offset: number },
-    );
-  if (mode === "likes") return feed.listLikesCount(input as { limit: number });
-  if (mode === "following")
-    return feed.listByFollowing(
-      input as { limit: number; latest_time: number },
-    );
-  return feed.listLatest(input as { limit: number; latest_time: number });
+  return "as_of" in input && input.as_of !== undefined
+    ? feed.listByPopularity(input)
+    : feed.listByFollowing({
+        limit: input.limit,
+        latest_time: input.latest_time ?? 0,
+      });
 }
 function useFeed(mode: FeedMode) {
   const session = useSession();
@@ -90,8 +96,14 @@ function useFeed(mode: FeedMode) {
       try {
         const result = await fetchPage(mode, cursor.current, reset);
         if (version !== generation.current) return;
+        // Stop when the server offers the same cursor twice.
+        const nextPage = pagingInput(mode, result, false);
+        const previousPage = pagingInput(mode, cursor.current, reset);
         cursor.current = result;
-        setMore(result.has_more);
+        setMore(
+          result.has_more &&
+            JSON.stringify(nextPage) !== JSON.stringify(previousPage),
+        );
         setItems((old) => {
           const map = new Map((reset ? [] : old).map((v) => [v.id, v]));
           for (const item of result.video_list) map.set(item.id, item);
@@ -174,23 +186,43 @@ export function fromVideo(item: Video): FeedVideoItem {
     is_liked: false,
   };
 }
+function playbackTime(seconds: number) {
+  const whole = Math.floor(seconds);
+  const minutes = Math.floor(whole / 60);
+  return `${String(minutes).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`;
+}
+
 function Player({
   item,
   active,
   muted,
+  presentation,
 }: {
   item: FeedVideoItem;
   active: boolean;
   muted: boolean;
+  presentation?: {
+    metadata: ReactNode;
+    actions: ReactNode;
+    toggleMute: () => void;
+  };
 }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const [blocked, setBlocked] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [shape, setShape] = useState<"unknown" | "wide" | "square" | "tall">(
+    "unknown",
+  );
   const wantsPlayback = useRef(false);
   const retrySignedURL = useRef<(() => boolean) | undefined>(undefined);
   const seekSigned = useRef<((time: number) => boolean) | undefined>(undefined);
   const [duration, setDuration] = useState(0);
   const [position, setPosition] = useState(0);
   const source = mediaPath(item.play_url);
+  const poster = mediaPath(item.cover_url);
+  const immersive = !!presentation;
   const signed =
     !!source && /^\/api\/media\/assets\/[a-f0-9]{32}$/.test(source);
   useEffect(() => {
@@ -302,6 +334,13 @@ function Player({
     if (ref.current) ref.current.muted = muted;
   }, [muted]);
   useEffect(() => {
+    if (!immersive || !active) return;
+    const update = () =>
+      setFullscreen(document.fullscreenElement === stage.current);
+    document.addEventListener("fullscreenchange", update);
+    return () => document.removeEventListener("fullscreenchange", update);
+  }, [immersive, active]);
+  useEffect(() => {
     const element = ref.current;
     if (!element) return;
     let live = true;
@@ -332,56 +371,149 @@ function Player({
       () => setBlocked(true),
     );
   }
+  function togglePlayback() {
+    const element = ref.current;
+    if (!element) return;
+    if (element.paused) play();
+    else {
+      wantsPlayback.current = false;
+      element.pause();
+      if (!presentation) setBlocked(true);
+    }
+  }
+
+  function toggleFullscreen() {
+    const element = ref.current as
+      (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+    } else if (document.fullscreenEnabled && stage.current?.requestFullscreen) {
+      void stage.current.requestFullscreen().catch(() => {});
+    } else {
+      element?.webkitEnterFullscreen?.();
+    }
+  }
+
+  const videoElement = (
+    <video
+      ref={ref}
+      playsInline
+      loop
+      muted={muted}
+      poster={poster}
+      preload={active ? "metadata" : "none"}
+      aria-label={item.title}
+      onDurationChange={(event) => {
+        const value = event.currentTarget.duration;
+        if (Number.isFinite(value)) setDuration(value);
+      }}
+      onLoadedMetadata={({ currentTarget: { videoWidth, videoHeight } }) => {
+        if (videoWidth && videoHeight)
+          setShape(
+            videoWidth === videoHeight
+              ? "square"
+              : videoWidth > videoHeight
+                ? "wide"
+                : "tall",
+          );
+      }}
+      onTimeUpdate={
+        signed
+          ? undefined
+          : (event) => setPosition(event.currentTarget.currentTime)
+      }
+      onPlay={() => setPlaying(true)}
+      onPause={() => setPlaying(false)}
+      onClick={togglePlayback}
+    />
+  );
+  const canSeek = active && duration > 0;
+  const seekBar = (
+    <input
+      aria-label="播放进度"
+      className={s.seek}
+      type="range"
+      min={0}
+      max={duration || 1}
+      step={0.01}
+      value={Math.min(position, duration)}
+      disabled={!canSeek}
+      onChange={(event) => {
+        const time = event.currentTarget.valueAsNumber;
+        setPosition(time);
+        if (ref.current && !seekSigned.current?.(time))
+          ref.current.currentTime = time;
+      }}
+    />
+  );
+  const playOverlay = blocked && active && (
+    <button className={`${s.primary} ${s.playOverlay}`} onClick={play}>
+      <Play size={18} /> 点击播放
+    </button>
+  );
+  if (presentation) {
+    return (
+      <div
+        className={s.homeStage}
+        ref={stage}
+        data-video-shape={shape}
+        data-player
+      >
+        <div className={s.playerVisual}>
+          {poster && shape !== "wide" && (
+            <img
+              key={poster}
+              src={poster}
+              alt=""
+              aria-hidden="true"
+              className={s.playerBackdrop}
+              onError={(event) => {
+                event.currentTarget.hidden = true;
+              }}
+            />
+          )}
+          {videoElement}
+          {playOverlay}
+        </div>
+        {presentation.metadata}
+        {presentation.actions}
+        <div className={s.playerControls}>
+          {seekBar}
+          <div className={s.playerToolbar}>
+            <button
+              type="button"
+              aria-label={playing ? "暂停" : "播放"}
+              onClick={togglePlayback}
+            >
+              {playing ? <Pause size={21} /> : <Play size={21} />}
+            </button>
+            <span>
+              {playbackTime(position)} / {playbackTime(duration)}
+            </span>
+            <button
+              type="button"
+              aria-label={muted ? "取消静音" : "静音"}
+              onClick={presentation.toggleMute}
+            >
+              {muted ? <VolumeX size={21} /> : <Volume2 size={21} />}
+            </button>
+            <button
+              type="button"
+              aria-label={fullscreen ? "退出全屏" : "全屏"}
+              onClick={toggleFullscreen}
+            >
+              {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <>
-      <video
-        ref={ref}
-        playsInline
-        loop
-        muted={muted}
-        poster={mediaPath(item.cover_url)}
-        preload={active ? "metadata" : "none"}
-        aria-label={item.title}
-        onDurationChange={(event) => {
-          const value = event.currentTarget.duration;
-          if (Number.isFinite(value)) setDuration(value);
-        }}
-        onClick={() => {
-          const element = ref.current;
-          if (element?.paused) play();
-          else if (element) {
-            wantsPlayback.current = false;
-            element.pause();
-            setBlocked(true);
-          }
-        }}
-      />
-      {signed && active && duration > 0 && (
-        <input
-          aria-label="播放进度"
-          className={s.seek}
-          type="range"
-          min={0}
-          max={duration}
-          step={0.01}
-          value={Math.min(position, duration)}
-          onChange={(event) => {
-            const time = event.currentTarget.valueAsNumber;
-            setPosition(time);
-            if (ref.current && !seekSigned.current?.(time))
-              ref.current.currentTime = time;
-          }}
-        />
-      )}
-      {blocked && (
-        <button
-          className={s.primary}
-          style={{ position: "absolute", top: "45%", left: "35%" }}
-          onClick={play}
-        >
-          <Play size={18} /> 点击播放
-        </button>
-      )}
+      {videoElement}
+      {signed && canSeek && seekBar}
+      {playOverlay}
     </>
   );
 }
@@ -417,7 +549,10 @@ export function CommentPanel({
   async function send() {
     if (sending || !item || !content.trim()) return;
     if (!session.token) {
-      navigate("/account?redirect=" + encodeURIComponent(location.pathname));
+      navigate(
+        "/account?redirect=" +
+          encodeURIComponent(location.pathname + location.search),
+      );
       return;
     }
     const current = epoch.current;
@@ -563,73 +698,126 @@ export function useVideoActions(update: (id: number, liked: boolean) => void) {
     ),
   };
 }
+type AuthorCache = Map<number, ReturnType<typeof findById>>;
+
+function AuthorAvatar({
+  author,
+  cache,
+}: {
+  author: FeedVideoItem["author"];
+  cache: AuthorCache;
+}) {
+  const profile = useLoad(String(author.id), () => {
+    const cached = cache.get(author.id);
+    if (cached) return cached;
+    const request = findById(author.id).catch((error: unknown) => {
+      cache.delete(author.id);
+      throw error;
+    });
+    cache.set(author.id, request);
+    return request;
+  });
+
+  return (
+    <Link
+      to={`/u/${author.id}`}
+      aria-label={`查看 ${author.username} 的主页`}
+      className={s.authorLink}
+    >
+      <Avatar name={author.username} url={profile.data?.avatar_url} />
+    </Link>
+  );
+}
+
 export function FeedPage({ hot = false }: { hot?: boolean }) {
-  const [mode, setMode] = useState<FeedMode>(hot ? "hot" : "recommend"),
-    [active, setActive] = useState(0),
-    [height, setHeight] = useState(600),
-    [muted, setMuted] = useState(true),
-    [drawer, setDrawer] = useState<FeedVideoItem | null>(null);
-  const session = useSession(),
-    navigate = useNavigate(),
-    [query] = useSearchParams(),
-    scroll = useRef<HTMLDivElement>(null);
-  const state = useFeed(hot ? "hot" : mode);
-  const q = (query.get("q") || "").toLowerCase(),
-    items = state.items.filter((v) =>
-      `${v.title} ${v.author.username}`.toLowerCase().includes(q),
-    );
+  const [query, setQuery] = useSearchParams();
+  const mode = !hot && query.get("feed") === "following" ? "following" : "hot";
+  const keyword = (query.get("q") ?? "").trim().toLowerCase();
+  const state = useFeed(mode);
+  const items = state.items.filter((item) =>
+    `${item.title} ${item.author.username}`.toLowerCase().includes(keyword),
+  );
+  const [active, setActive] = useState(0);
+  const [height, setHeight] = useState(0);
+  const [muted, setMuted] = useState(true);
+  const [drawer, setDrawer] = useState<FeedVideoItem | null>(null);
+  const [authorCache] = useState<AuthorCache>(() => new Map());
+  const scroll = useRef<HTMLDivElement>(null);
+  const previousHeight = useRef(0);
   const actions = useVideoActions((id, is_liked) =>
     state.setItems((old) =>
-      old.map((v) =>
-        v.id === id
+      old.map((item) =>
+        item.id === id
           ? {
-              ...v,
+              ...item,
               is_liked,
-              likes_count: Math.max(0, v.likes_count + (is_liked ? 1 : -1)),
+              likes_count: Math.max(0, item.likes_count + (is_liked ? 1 : -1)),
             }
-          : v,
+          : item,
       ),
     ),
   );
+  const hasPlayer = !hot && items.length > 0;
+  const current = Math.min(active, Math.max(0, items.length - 1));
+  const { more, loading, load, error } = state;
+
   useEffect(() => {
     setActive(0);
+    setDrawer(null);
     scroll.current?.scrollTo(0, 0);
-  }, [mode, q]);
+  }, [mode, keyword, hot]);
+
   useEffect(() => {
-    const el = scroll.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => setHeight(el.clientHeight));
-    observer.observe(el);
+    const element = scroll.current;
+    if (!hasPlayer || !element) return;
+    const measure = () => setHeight(element.clientHeight);
+    const observer = new ResizeObserver(measure);
+    measure();
+    observer.observe(element);
     return () => observer.disconnect();
-  }, [hot, state.items.length]);
-  const { more, loading, load } = state;
+  }, [hasPlayer]);
+
+  useEffect(() => {
+    // Maintain the active slide when the viewport height changes.
+    if (previousHeight.current === height) return;
+    previousHeight.current = height;
+    if (scroll.current && height) scroll.current.scrollTop = current * height;
+  }, [height, current]);
+
   useEffect(() => {
     if (
-      !hot &&
-      items.length > 0 &&
-      active >= items.length - 3 &&
+      hasPlayer &&
+      !keyword &&
+      current >= items.length - 3 &&
       more &&
-      !loading
+      !loading &&
+      !error
     )
       void load();
-  }, [active, items.length, more, loading, hot, load]);
+  }, [current, items.length, more, loading, hasPlayer, keyword, load, error]);
+
   useEffect(() => {
-    function key(e: KeyboardEvent) {
+    if (!hasPlayer || drawer) return;
+    function key(event: KeyboardEvent) {
       if (
-        (e.target as HTMLElement).closest(
-          "input,textarea,button,a,[contenteditable]",
-        ) ||
-        drawer
+        event.defaultPrevented ||
+        (event.target instanceof Element &&
+          event.target.closest("input,textarea,button,a,[contenteditable]")) ||
+        document.fullscreenElement ||
+        document.querySelector('[role="dialog"]')
       )
         return;
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const idx = Math.max(
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const target = Math.max(
           0,
-          Math.min(items.length - 1, active + (e.key === "ArrowDown" ? 1 : -1)),
+          Math.min(
+            items.length - 1,
+            current + (event.key === "ArrowDown" ? 1 : -1),
+          ),
         );
         scroll.current?.scrollTo({
-          top: idx * height,
+          top: target * height,
           behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
             ? "instant"
             : "smooth",
@@ -638,160 +826,206 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
     }
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [active, height, items.length, drawer]);
-  const start = Math.max(0, active - 1),
-    end = Math.min(items.length, active + 2);
+  }, [current, height, items.length, drawer, hasPlayer]);
+
+  const start = Math.max(0, current - 1);
+  const end = Math.min(items.length, current + 2);
+  const currentItem = items[current];
+  const rank = currentItem
+    ? state.items.findIndex((item) => item.id === currentItem.id) + 1
+    : 0;
   return (
-    <Tabs.Root
-      value={mode}
-      onValueChange={(value) => {
-        if (value === "following" && !session.token) {
-          navigate("/account?redirect=/");
-          return;
-        }
-        setMode(value as FeedMode);
-      }}
+    <section
+      aria-label={hot ? "榜单总览" : mode === "following" ? "关注动态" : "热榜"}
     >
       {hot ? (
-        <>
-          <p className={s.eyebrow}>此刻热门</p>
-          <h1>此刻，大家都在看</h1>
-          <p className={s.muted}>发现正在受到关注的好内容。</p>
-        </>
+        <h1>此刻，大家都在看</h1>
       ) : (
-        <div className={s.topline}>
-          <Tabs.List className={s.tabs} aria-label="视频来源">
-            {(["recommend", "following", "likes"] as const).map((key, i) => (
-              <Tabs.Trigger
-                value={key}
-                role="tab"
-                aria-selected={mode === key}
-                key={key}
-                onClick={() => {
-                  if (key === "following" && !session.token) {
-                    navigate("/account?redirect=/");
-                    return;
-                  }
-                  setMode(key);
-                }}
-              >
-                {["推荐", "关注", "点赞榜"][i]}
-              </Tabs.Trigger>
-            ))}
-          </Tabs.List>
-          <button
-            aria-label={muted ? "取消静音" : "静音"}
-            onClick={() => setMuted(!muted)}
-          >
-            {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-          </button>
+        <div className={s.feedHeading}>
+          <h1>
+            {mode === "following"
+              ? "关注动态"
+              : rank
+                ? `热榜第 ${rank} 位`
+                : "热榜"}
+          </h1>
+          <ErrorBox
+            error={hasPlayer ? error : null}
+            retry={() => void load()}
+          />
+          {loading && state.items.length > 0 && (
+            <span role="status">正在加载更多…</span>
+          )}
+          {keyword && more && hasPlayer && (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void load()}
+            >
+              继续查找
+            </button>
+          )}
         </div>
       )}
-      <Tabs.Content
-        value={mode}
-        forceMount
-        {...(hot
-          ? {
-              role: "region",
-              "aria-label": "热榜",
-              "aria-labelledby": undefined,
+      {!hasPlayer && (
+        <ErrorBox error={error} retry={() => void load(!state.items.length)} />
+      )}
+      {loading && !state.items.length ? (
+        <div className={s.skeleton} role="status" aria-label="正在加载视频" />
+      ) : !items.length ? (
+        !error && (
+          <Empty
+            title={
+              keyword
+                ? "没有找到匹配的视频"
+                : mode === "following"
+                  ? "暂无关注动态"
+                  : "热榜暂无视频"
             }
-          : {})}
-      >
-        <ErrorBox error={state.error} retry={() => void state.load(true)} />
-        {state.loading && !state.items.length ? (
-          <div className={s.skeleton} />
-        ) : !items.length ? (
-          <Empty title={q ? "没有找到匹配的视频" : "精彩内容即将到来"}>
-            <p className={s.muted}>
-              {q
-                ? "换个关键词，或继续加载更多内容。"
-                : "稍后刷新，或分享你的第一条作品。"}
-            </p>
-            {q && state.more && (
-              <button onClick={() => void state.load()}>继续查找</button>
+          >
+            {keyword && (
+              <div className={s.row}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const params = new URLSearchParams(query);
+                    params.delete("q");
+                    setQuery(params);
+                  }}
+                >
+                  清除关键词
+                </button>
+                {more && (
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => void load()}
+                  >
+                    继续查找
+                  </button>
+                )}
+              </div>
             )}
           </Empty>
-        ) : hot ? (
-          <div className={s.grid}>
-            {items.map((item, i) => (
-              <VideoCard key={item.id} item={item} rank={i + 1} />
-            ))}
-          </div>
-        ) : (
-          <div
-            ref={scroll}
-            className={s.feed}
-            onScroll={(e) =>
+        )
+      ) : hot ? (
+        <div className={s.grid}>
+          {items.map((item, index) => (
+            <VideoCard key={item.id} item={item} rank={index + 1} />
+          ))}
+        </div>
+      ) : (
+        <div
+          ref={scroll}
+          data-feed-scroll
+          data-comments-open={!!drawer}
+          className={s.feed}
+          tabIndex={0}
+          role="region"
+          aria-label="视频流"
+          onScroll={(event) => {
+            const { scrollTop, clientHeight } = event.currentTarget;
+            if (clientHeight > 0)
               setActive(
-                Math.round(
-                  e.currentTarget.scrollTop / e.currentTarget.clientHeight,
+                Math.min(
+                  items.length - 1,
+                  Math.max(0, Math.round(scrollTop / clientHeight)),
                 ),
-              )
-            }
-          >
-            <div style={{ height: start * height }} />
-            {items.slice(start, end).map((item, i) => (
-              <section key={item.id} className={s.slide} style={{ height }}>
-                <div className={s.stage}>
-                  <Player
-                    item={item}
-                    active={start + i === active}
-                    muted={muted}
-                  />
-                  <div className={s.meta}>
-                    <Link to={`/u/${item.author.id}`}>
-                      <strong>@{item.author.username}</strong>
-                    </Link>
-                    <h2 style={{ fontSize: 18, margin: "8px 0" }}>
-                      {item.title}
-                    </h2>
-                    <small>{item.description}</small>
-                  </div>
-                </div>
-                <div className={s.actions}>
-                  <button
-                    aria-label={item.is_liked ? "取消点赞" : "点赞"}
-                    aria-pressed={item.is_liked}
-                    disabled={actions.busy[item.id]}
-                    className={item.is_liked ? s.liked : ""}
-                    onClick={() => actions.toggle(item)}
-                  >
-                    <Heart fill={item.is_liked ? "currentColor" : "none"} />
-                    {item.likes_count}
-                  </button>
-                  <button aria-label="打开评论" onClick={() => setDrawer(item)}>
-                    <MessageCircle />
-                    评论
-                  </button>
-                  <button
-                    aria-label="分享视频"
-                    onClick={() => actions.share(item)}
-                  >
-                    <Share2 />
-                    分享
-                  </button>
-                  <FollowButton id={item.author.id} />
-                  <Link to={`/video/${item.id}`}>详情 ↗</Link>
-                </div>
+              );
+          }}
+        >
+          <div style={{ height: start * height }} />
+          {items.slice(start, end).map((item, index) => {
+            const visible = start + index === current;
+            return (
+              <section
+                key={item.id}
+                className={s.feedSlide}
+                inert={!visible}
+                aria-hidden={!visible}
+              >
+                <Player
+                  item={item}
+                  active={visible}
+                  muted={muted}
+                  presentation={{
+                    toggleMute: () => setMuted((value) => !value),
+                    metadata: (
+                      <div className={s.homeMeta}>
+                        <div>
+                          <Link to={`/u/${item.author.id}`}>
+                            @{item.author.username}
+                          </Link>
+                          {visible && <FollowButton id={item.author.id} />}
+                        </div>
+                        <h2>
+                          <Link to={`/video/${item.id}`}>{item.title}</Link>
+                        </h2>
+                        {item.description && <p>{item.description}</p>}
+                      </div>
+                    ),
+                    actions: (
+                      <div
+                        className={s.homeActions}
+                        role="group"
+                        aria-label="视频互动"
+                      >
+                        {visible && (
+                          <AuthorAvatar
+                            author={item.author}
+                            cache={authorCache}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          aria-label={item.is_liked ? "取消点赞" : "点赞"}
+                          aria-pressed={item.is_liked}
+                          disabled={actions.busy[item.id]}
+                          onClick={() => void actions.toggle(item)}
+                        >
+                          <Heart
+                            fill={item.is_liked ? "currentColor" : "none"}
+                          />
+                          <span>{item.likes_count}</span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="打开评论"
+                          onClick={() => setDrawer(item)}
+                        >
+                          <MessageCircle />
+                          <span>评论</span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="分享视频"
+                          onClick={() => void actions.share(item)}
+                        >
+                          <Share2 />
+                          <span>分享</span>
+                        </button>
+                      </div>
+                    ),
+                  }}
+                />
               </section>
-            ))}
-            <div style={{ height: Math.max(0, items.length - end) * height }} />
-          </div>
-        )}
-        {hot && state.more && (
-          <button
-            style={{ marginTop: 24 }}
-            disabled={state.loading}
-            onClick={() => void state.load()}
-          >
-            {state.loading ? "加载中…" : "发现更多"}
-          </button>
-        )}
-      </Tabs.Content>
+            );
+          })}
+          <div style={{ height: Math.max(0, items.length - end) * height }} />
+        </div>
+      )}
+      {hot && more && (
+        <button
+          style={{ marginTop: 24 }}
+          disabled={loading}
+          onClick={() => void load()}
+        >
+          {loading ? "加载中…" : "发现更多"}
+        </button>
+      )}
       {actions.sharePanel}
       <CommentPanel item={drawer} onClose={() => setDrawer(null)} />
-    </Tabs.Root>
+    </section>
   );
 }
 export function DetailPage() {

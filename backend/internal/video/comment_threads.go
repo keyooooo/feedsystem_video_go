@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"feedsystem_video_go/internal/apierror"
+	"feedsystem_video_go/internal/middleware/jwt"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -17,18 +18,21 @@ const replyPageSize = 10
 
 type commentThread struct {
 	Comment
+	CommentPresentation
 	ReplyCount int `json:"reply_count"`
 }
 
 type commentReply struct {
 	Comment
+	CommentPresentation
 	ReplyToUsername    string `json:"reply_to_username,omitempty"`
 	ReplyTargetDeleted bool   `json:"reply_target_deleted"`
 }
 
 type commentPage[T any] struct {
-	Comments   []T  `json:"comments"`
-	NextCursor uint `json:"next_cursor"`
+	Comments   []T    `json:"comments"`
+	NextCursor uint   `json:"next_cursor"`
+	TotalCount *int64 `json:"total_count,omitempty"`
 }
 
 func (s *CommentService) publishReply(ctx context.Context, reply *Comment, targetID uint) (commentReply, error) {
@@ -69,10 +73,11 @@ func (s *CommentService) publishReply(ctx context.Context, reply *Comment, targe
 	return commentReply{Comment: *reply, ReplyToUsername: target.Username}, err
 }
 
-func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor uint) (commentPage[commentThread], error) {
+func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor, viewer uint) (commentPage[commentThread], error) {
 	page := commentPage[commentThread]{Comments: []commentThread{}}
 	query := r.db.WithContext(ctx).Table("comments AS root").
-		Select("root.*, (SELECT COUNT(*) FROM comments AS reply WHERE reply.root_comment_id = root.id AND reply.removed_at IS NULL) AS reply_count").
+		Select("root.*, (SELECT COUNT(*) FROM comments AS reply WHERE reply.root_comment_id = root.id AND reply.removed_at IS NULL) AS reply_count"+commentPresentationSQL("root"), viewer).
+		Joins("LEFT JOIN accounts AS author ON author.id = root.author_id").
 		Where("root.video_id = ? AND root.root_comment_id IS NULL", videoID).
 		Where("root.removed_at IS NULL OR EXISTS (SELECT 1 FROM comments AS reply WHERE reply.root_comment_id = root.id AND reply.removed_at IS NULL)")
 	if cursor != 0 {
@@ -85,6 +90,13 @@ func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor uin
 		page.Comments = page.Comments[:threadPageSize]
 		page.NextCursor = page.Comments[threadPageSize-1].ID
 	}
+	if cursor == 0 {
+		var total int64
+		if err := r.db.WithContext(ctx).Model(&Comment{}).Where("video_id = ? AND removed_at IS NULL", videoID).Count(&total).Error; err != nil {
+			return page, err
+		}
+		page.TotalCount = &total
+	}
 	for i := range page.Comments {
 		if page.Comments[i].RemovedAt != nil {
 			page.Comments[i].Content = ""
@@ -93,7 +105,7 @@ func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor uin
 	return page, nil
 }
 
-func (r *CommentRepository) listReplies(ctx context.Context, videoID, rootID, cursor uint) (commentPage[commentReply], error) {
+func (r *CommentRepository) listReplies(ctx context.Context, videoID, rootID, cursor, viewer uint) (commentPage[commentReply], error) {
 	page := commentPage[commentReply]{Comments: []commentReply{}}
 	var root Comment
 	if err := r.db.WithContext(ctx).Select("id").
@@ -102,7 +114,8 @@ func (r *CommentRepository) listReplies(ctx context.Context, videoID, rootID, cu
 	}
 	err := r.db.WithContext(ctx).Table("comments AS reply").
 		Select(`reply.*, CASE WHEN target.removed_at IS NULL THEN COALESCE(target.username, '') ELSE '' END AS reply_to_username,
-			CASE WHEN target.id IS NULL OR target.removed_at IS NOT NULL THEN TRUE ELSE FALSE END AS reply_target_deleted`).
+			CASE WHEN target.id IS NULL OR target.removed_at IS NOT NULL THEN TRUE ELSE FALSE END AS reply_target_deleted`+commentPresentationSQL("reply"), viewer).
+		Joins("LEFT JOIN accounts AS author ON author.id = reply.author_id").
 		Joins("LEFT JOIN comments AS target ON target.id = reply.reply_to_comment_id").
 		Where("reply.root_comment_id = ? AND reply.removed_at IS NULL AND reply.id > ?", rootID, cursor).
 		Order("reply.id ASC").Limit(replyPageSize + 1).Scan(&page.Comments).Error
@@ -125,7 +138,8 @@ func (h *CommentHandler) ListThreads(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "valid video_id required"})
 		return
 	}
-	page, err := h.service.repo.listThreads(c.Request.Context(), req.VideoID, req.Cursor)
+	viewer, _ := jwt.GetAccountID(c)
+	page, err := h.service.repo.listThreads(c.Request.Context(), req.VideoID, req.Cursor, viewer)
 	if err != nil {
 		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": "could not load comments"})
 		return
@@ -139,7 +153,8 @@ func (h *CommentHandler) ListReplies(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "valid video_id and root_comment_id required"})
 		return
 	}
-	page, err := h.service.repo.listReplies(c.Request.Context(), req.VideoID, req.RootCommentID, req.Cursor)
+	viewer, _ := jwt.GetAccountID(c)
+	page, err := h.service.repo.listReplies(c.Request.Context(), req.VideoID, req.RootCommentID, req.Cursor, viewer)
 	if err != nil {
 		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": "could not load replies"})
 		return

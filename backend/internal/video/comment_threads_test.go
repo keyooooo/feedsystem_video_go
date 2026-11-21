@@ -26,12 +26,15 @@ func TestCommentThreadsMySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&Comment{}); err != nil {
+	if err := db.AutoMigrate(&Comment{}, &CommentLike{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
 	videoID := uint(time.Now().UnixNano())
-	t.Cleanup(func() { db.Where("video_id = ?", videoID).Delete(&Comment{}) })
+	t.Cleanup(func() {
+		db.Where("comment_id IN (?)", db.Model(&Comment{}).Select("id").Where("video_id = ?", videoID)).Delete(&CommentLike{})
+		db.Where("video_id = ?", videoID).Delete(&Comment{})
+	})
 	repo := NewCommentRepository(db)
 	service := NewCommentService(repo, nil, nil, nil, nil)
 	roots := make([]Comment, threadPageSize+1)
@@ -60,11 +63,41 @@ func TestCommentThreadsMySQL(t *testing.T) {
 	if err := service.Delete(ctx, first.ID, 1); err == nil {
 		t.Fatal("accepted deletion by another account")
 	}
-	page, err := repo.listThreads(ctx, videoID, 0)
+	page, err := repo.listThreads(ctx, videoID, 0, 0)
 	if err != nil || len(page.Comments) != threadPageSize || page.NextCursor == 0 || page.Comments[0].ReplyCount != 2 {
 		t.Fatalf("unexpected first page: %#v, %v", page, err)
 	}
-	next, err := repo.listThreads(ctx, videoID, page.NextCursor)
+	likeResults := make(chan error, 2)
+	for range 2 {
+		go func() {
+			state, err := repo.setLike(ctx, root.ID, 2, true)
+			if err == nil && (!state.IsLiked || state.LikesCount != 1) {
+				err = errors.New("duplicate like changed the count")
+			}
+			likeResults <- err
+		}()
+	}
+	for range 2 {
+		if err := <-likeResults; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state, err := repo.setLike(ctx, first.ID, 1, true); err != nil || state.LikesCount != 1 {
+		t.Fatalf("reply like failed: %#v, %v", state, err)
+	}
+	for _, viewer := range []uint{0, 1, 2} {
+		got, err := repo.listThreads(ctx, videoID, 0, viewer)
+		if err != nil || got.Comments[0].LikesCount != 1 || got.Comments[0].IsLiked != (viewer == 2) ||
+			got.TotalCount == nil || *got.TotalCount != int64(len(roots)+2) {
+			t.Fatalf("unexpected viewer state (%d): %#v, %v", viewer, got, err)
+		}
+	}
+	for range 2 {
+		if state, err := repo.setLike(ctx, root.ID, 2, false); err != nil || state.IsLiked || state.LikesCount != 0 {
+			t.Fatalf("unexpected unlike state: %#v, %v", state, err)
+		}
+	}
+	next, err := repo.listThreads(ctx, videoID, page.NextCursor, 0)
 	if err != nil || len(next.Comments) != 1 || next.Comments[0].ID != roots[0].ID || next.NextCursor != 0 {
 		t.Fatalf("unexpected next page: %#v, %v", next, err)
 	}
@@ -74,11 +107,11 @@ func TestCommentThreadsMySQL(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	firstReplies, err := repo.listReplies(ctx, videoID, other.ID, 0)
+	firstReplies, err := repo.listReplies(ctx, videoID, other.ID, 0, 0)
 	if err != nil || len(firstReplies.Comments) != replyPageSize || firstReplies.NextCursor == 0 {
 		t.Fatalf("unexpected replies page: %#v, %v", firstReplies, err)
 	}
-	nextReplies, err := repo.listReplies(ctx, videoID, other.ID, firstReplies.NextCursor)
+	nextReplies, err := repo.listReplies(ctx, videoID, other.ID, firstReplies.NextCursor, 0)
 	if err != nil || len(nextReplies.Comments) != 1 || nextReplies.NextCursor != 0 {
 		t.Fatalf("unexpected next replies page: %#v, %v", nextReplies, err)
 	}
@@ -99,18 +132,21 @@ func TestCommentThreadsMySQL(t *testing.T) {
 	if err := service.Delete(ctx, root.ID, 1); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := repo.setLike(ctx, root.ID, 2, true); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("accepted a like for a deleted comment: %v", err)
+	}
 	if err := service.Delete(ctx, first.ID, 2); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := reply(second.ID, videoID); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("accepted reply to a deleted thread: %v", err)
 	}
-	replies, err := repo.listReplies(ctx, videoID, root.ID, 0)
+	replies, err := repo.listReplies(ctx, videoID, root.ID, 0, 0)
 	if err != nil || len(replies.Comments) != 1 || replies.Comments[0].ID != second.ID ||
 		!replies.Comments[0].ReplyTargetDeleted || replies.Comments[0].ReplyToUsername != "" {
 		t.Fatalf("deleted reply target was not masked: %#v, %v", replies, err)
 	}
-	page, err = repo.listThreads(ctx, videoID, 0)
+	page, err = repo.listThreads(ctx, videoID, 0, 0)
 	if err != nil || page.Comments[0].ID != root.ID || page.Comments[0].Content != "" || page.Comments[0].ReplyCount != 1 {
 		t.Fatalf("deleted root did not keep its replies: %#v, %v", page, err)
 	}

@@ -48,6 +48,7 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 	messageLimiter := limit(cache, "message_write", 30, time.Minute, ratelimit.KeyByAccount)
 
 	likeLimiter := limit(cache, "like_write", 30, time.Minute, ratelimit.KeyByAccount)
+	commentLikeLimiter := limit(cache, "comment_like_write", 30, time.Minute, ratelimit.KeyByAccount)
 	commentLimiter := limit(cache, "comment_write", 10, time.Minute, ratelimit.KeyByAccount)
 	socialLimiter := limit(cache, "social_write", 20, time.Minute, ratelimit.KeyByAccount)
 
@@ -148,14 +149,15 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 	commentGroup := r.Group("/comment")
 	{
 		commentGroup.POST("/listAll", commentHandler.GetAllComments)
-		commentGroup.POST("/listThreads", commentHandler.ListThreads)
-		commentGroup.POST("/listReplies", commentHandler.ListReplies)
+		commentGroup.POST("/listThreads", jwt.SoftJWTAuth(accountRepository, cache), commentHandler.ListThreads)
+		commentGroup.POST("/listReplies", jwt.SoftJWTAuth(accountRepository, cache), commentHandler.ListReplies)
 	}
 	protectedCommentGroup := commentGroup.Group("")
 	protectedCommentGroup.Use(jwt.JWTAuth(accountRepository, cache))
 	{
 		protectedCommentGroup.POST("/publish", commentLimiter, commentHandler.PublishComment)
 		protectedCommentGroup.POST("/delete", commentLimiter, commentHandler.DeleteComment)
+		protectedCommentGroup.POST("/setLike", commentLikeLimiter, commentHandler.SetLike)
 	}
 	// social
 	socialMQ, err := rabbitmq.NewSocialMQ(rmq)

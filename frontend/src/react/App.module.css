@@ -433,26 +433,16 @@
   justify-self: start;
   max-width: min(100%, 520px);
   padding: 24px 28px 16px;
-  background: linear-gradient(15deg, #0c0d11ed, transparent);
+  background: transparent;
+  text-shadow: 0 1px 5px #000, 0 0 2px #000;
   pointer-events: none;
 }
-.homeMeta :is(a, button) {
-  pointer-events: auto;
-}
-.homeMeta > div {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-weight: 600;
-}
-.homeMeta button {
-  background: #101114cc;
-  color: #f5f5f7;
-  border: 1px solid #a6a8b0;
-  padding: 4px 12px;
+.homeMeta > a {
+  font-size: 22px;
+  font-weight: 700;
 }
 .homeMeta h2 {
-  font-size: clamp(18px, 2vw, 30px);
+  font-size: 18px;
   margin: 4px 0;
 }
 .homeMeta p {
@@ -464,6 +454,7 @@
   overflow: hidden;
 }
 .homeMeta a {
+  pointer-events: auto;
   overflow-wrap: anywhere;
 }
 .homeActions {
@@ -477,15 +468,16 @@
   display: grid;
   justify-items: center;
   gap: 2px;
-  background: #101114e6;
-  border: 1px solid #ffffff20;
+  background: transparent;
+  border: 1px solid transparent;
+  text-shadow: 0 1px 4px #000;
   border-radius: 14px;
   min-width: 50px;
   padding: 6px 8px;
   font-size: 12px;
 }
-.homeActions button:hover {
-  border-color: #a6a8b0;
+.homeActions button svg {
+  filter: drop-shadow(0 1px 2px #000);
 }
 .homeActions button[aria-pressed="true"] svg {
   color: var(--shell-accent);
@@ -840,8 +832,14 @@
   .homeMeta {
     padding: 16px 10px 10px;
   }
+  .homeMeta > a {
+    font-size: 18px;
+  }
+  .homeMeta h2 {
+    font-size: 16px;
+  }
   .homeMeta p {
-    display: none;
+    font-size: 14px;
   }
   .homeActions {
     gap: 4px;
@@ -860,13 +858,6 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-  }
-  .homeStage[data-video-shape="wide"] .homeMeta > div {
-    flex-wrap: wrap;
-    gap: 3px;
-  }
-  .homeStage[data-video-shape="wide"] .homeMeta h2 {
-    font-size: 15px;
   }
   .homeStage[data-video-shape="wide"] {
     grid-template-rows: minmax(0, 1fr) auto auto minmax(0, 1fr) auto;

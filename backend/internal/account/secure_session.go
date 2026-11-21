@@ -12,7 +12,6 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const refreshCookie = "__Host-feedsystem-refresh"
@@ -110,25 +109,31 @@ func (as *AccountService) rotateCookie(ctx context.Context, refresh string) (Acc
 	if refresh == "" {
 		return Account{}, "", "", errInvalidSession
 	}
+	db := as.accountRepository.db.WithContext(ctx)
+	digest := auth.DigestToken(refresh)
 	var a Account
-	var access, next string
-	err := as.accountRepository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("session_refresh_digest = ? AND session_expires_at > ?", auth.DigestToken(refresh), time.Now().UTC()).
-			Take(&a).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errInvalidSession
-		}
-		if err != nil {
-			return err
-		}
-		access, next, err = newSessionTokens(a)
-		if err != nil {
-			return err
-		}
-		return tx.Model(&Account{}).Where("id = ?", a.ID).Updates(secureTokens(access, next, *a.SessionExpiresAt)).Error
-	})
-	return a, access, next, err
+	err := db.Where("session_refresh_digest = ? AND session_expires_at > ?", digest, time.Now().UTC()).Take(&a).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return Account{}, "", "", errInvalidSession
+	}
+	if err != nil {
+		return Account{}, "", "", err
+	}
+	access, next, err := newSessionTokens(a)
+	if err != nil {
+		return Account{}, "", "", err
+	}
+	// Only the request that still owns the old digest may rotate this account.
+	result := db.Model(&Account{}).
+		Where("id = ? AND session_refresh_digest = ? AND session_expires_at > ?", a.ID, digest, time.Now().UTC()).
+		Updates(secureTokens(access, next, *a.SessionExpiresAt))
+	if result.Error != nil {
+		return Account{}, "", "", result.Error
+	}
+	if result.RowsAffected != 1 {
+		return Account{}, "", "", errInvalidSession
+	}
+	return a, access, next, nil
 }
 
 func (h *AccountHandler) refreshCookie(c *gin.Context) {

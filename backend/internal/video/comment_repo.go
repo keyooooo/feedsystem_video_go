@@ -2,6 +2,7 @@ package video
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -19,13 +20,15 @@ func (r *CommentRepository) CreateComment(ctx context.Context, comment *Comment)
 }
 
 func (r *CommentRepository) DeleteComment(ctx context.Context, comment *Comment) error {
-	return r.db.WithContext(ctx).Delete(comment).Error
+	return r.db.WithContext(ctx).Model(&Comment{}).
+		Where("id = ? AND removed_at IS NULL", comment.ID).
+		Updates(map[string]any{"removed_at": time.Now().UTC(), "content": ""}).Error
 }
 
 func (r *CommentRepository) GetAllComments(ctx context.Context, videoID uint) ([]Comment, error) {
 	var comments []Comment
 	err := r.db.WithContext(ctx).
-		Where("video_id = ?", videoID).
+		Where("video_id = ? AND root_comment_id IS NULL AND removed_at IS NULL", videoID).
 		Order("created_at asc").
 		Limit(200).
 		Find(&comments).Error

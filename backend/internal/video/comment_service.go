@@ -101,11 +101,6 @@ func (s *CommentService) Delete(ctx context.Context, commentID uint, accountID u
 	if comment.AuthorID != accountID {
 		return apierror.ErrUnauthorized
 	}
-	if s.commentMQ != nil {
-		if err := s.commentMQ.Delete(ctx, commentID); err == nil {
-			return nil
-		}
-	}
 	return s.repo.DeleteComment(ctx, comment)
 }
 

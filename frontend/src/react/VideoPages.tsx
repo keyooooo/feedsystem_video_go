@@ -210,7 +210,8 @@ function Player({
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const stage = useRef<HTMLDivElement>(null);
-  const [blocked, setBlocked] = useState(false);
+  const clickToPlay = import.meta.env.MODE === "demo";
+  const [blocked, setBlocked] = useState(clickToPlay);
   const [playing, setPlaying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [shape, setShape] = useState<"unknown" | "wide" | "square" | "tall">(
@@ -317,7 +318,7 @@ function Player({
       element.addEventListener("error", error);
       element.addEventListener("canplay", restore);
     }
-    element.src = source;
+    if (!clickToPlay) element.src = source;
     return () => {
       live = false;
       controller.abort();
@@ -330,7 +331,7 @@ function Player({
       element.removeAttribute("src");
       element.load();
     };
-  }, [source, signed]);
+  }, [source, signed, clickToPlay]);
   useEffect(() => {
     if (ref.current) ref.current.muted = muted;
   }, [muted]);
@@ -345,8 +346,8 @@ function Player({
     const element = ref.current;
     if (!element) return;
     let live = true;
-    wantsPlayback.current = active;
-    if (active)
+    wantsPlayback.current = active && !clickToPlay;
+    if (active && !clickToPlay)
       void element
         .play()
         .then(() => {
@@ -360,11 +361,13 @@ function Player({
       live = false;
       element.pause();
     };
-  }, [source, active]);
+  }, [source, active, clickToPlay]);
   function play() {
     const element = ref.current;
     if (!element) return;
     wantsPlayback.current = true;
+    if (clickToPlay && source && !element.hasAttribute("src"))
+      element.src = source;
     if ((!element.currentSrc || element.error) && retrySignedURL.current?.())
       return;
     void element.play().then(
@@ -402,7 +405,7 @@ function Player({
       loop
       muted={muted}
       poster={poster}
-      preload={active ? "metadata" : "none"}
+      preload={active && !clickToPlay ? "metadata" : "none"}
       aria-label={item.title}
       onDurationChange={(event) => {
         const value = event.currentTarget.duration;

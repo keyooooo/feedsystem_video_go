@@ -9,6 +9,8 @@ const clips = {
 http
   .createServer((req, res) => {
     const url = new URL(req.url, "http://localhost");
+    // Support both direct API access and an already-mounted gateway.
+    url.pathname = url.pathname.replace(/^\/api(?=\/)/, "");
     if (url.pathname === "/healthz") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok" }));

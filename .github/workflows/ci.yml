@@ -163,7 +163,7 @@ jobs:
           E2E_OSS_UPLOAD_ORIGIN: https://upload.example.invalid
           E2E_OSS_PLAYBACK_ORIGIN: https://media.example.invalid
           E2E_REAL_MEDIA: "1"
-          API_PROXY_TARGET: http://127.0.0.1:4175
+          API_PROXY_TARGET: http://127.0.0.1:4175/api
         run: |
           SMOKE_BACKEND_PORT=4175 SMOKE_CLIP_FILE="$PWD/e2e/fixtures/clip.mp4" node scripts/smoke-backend.mjs &
           server_pid=$!

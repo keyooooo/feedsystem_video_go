@@ -8,15 +8,18 @@ React 19 + TypeScript + Vite 7 + React Router 7 + Zustand 5。界面采用炭黑
 
 ```bash
 npm ci
-cp .env.example .env.local
 npm run dev
 ```
 
-默认通过本地 `/api` 与 `/static` 代理连接 `http://8.134.84.151:8080`。修改 `.env.local` 中的 `API_PROXY_TARGET` 可切换后端。`VITE_API_BASE` 默认 `/api`，属于构建时变量；不要在 `VITE_` 变量中存储密码。
+默认的开发预览使用仓库里的竖屏、方形和横屏片源。同源模拟接口提供热榜、作者和评论，点击播放前只加载封面。预览仅供浏览，页面的网络请求和媒体由本地服务提供。
+
+只有需要验收真实 OSS 的上传或签名播放时，才配置 `API_PROXY_TARGET` 和对应的 `VITE_OSS_*` 变量，并运行 `npm run dev:oss`。它默认使用独立的 5174 端口。生产构建继续使用既有部署配置。
+
+直连 Go 后端时使用其地址作为 `API_PROXY_TARGET`。若连接已在 `/api` 下提供 API 的预发布网关，则在地址后保留 `/api`，例如 `http://127.0.0.1:15174/api`。两种模式的媒体 `/static` 都走上游根路径。
 
 ## 页面
 
-- `/` 推荐、关注、点赞榜；搜索已加载的视频，窗口内最多挂载三个视频。
+- `/` 公开热榜和登录后的关注流；搜索已加载的视频，窗口内最多挂载三个视频。
 - `/hot` 热榜；`/video/:id` 视频详情与评论。
 - `/video` 拖放上传、封面预览、分片续传和发布；上传时离开页面需要确认。
 - `/account` 登录或自己的作品/喜欢；注册与改密 URL 保持不变。
@@ -42,7 +45,9 @@ npm run verify
 
 `npm audit --audit-level=high` 用于依赖安全门禁。生产镜像测试在安装 Playwright 两个浏览器及系统依赖后，从仓库根目录执行 `bash frontend/scripts/container-smoke.sh`。默认开发服务器会跳过仅适用于 Nginx 的安全用例；镜像检查会运行这些用例。
 
-真实服务器联调显式执行 `npm run test:live`，只使用专用账号和合成作品，凭据保存在被忽略的 `.e2e-accounts.local`，权限 600。不存在删除 API 的视频与私信会保留在测试账号下；可撤销的关注、点赞和评论会清理。运行 `npm run test:live:browser` 可只读验证已发布测试视频与桌面/手机截图。
+真实服务器联调显式执行 `npm run test:live`，只使用专用账号和合成作品，凭据保存在被忽略的 `.e2e-accounts.local`，权限 600。不存在删除 API 的视频与私信会保留在测试账号下；可撤销的关注、点赞和评论会清理。
+
+配置真实联调的代理和播放 Origin 后，运行 `LIVE_VIDEO_ID=5 npm run test:live:browser`（将 5 换成已发布的测试作品 ID）。它只读验证详情 API、浏览器播放和桌面/手机截图。OSS 作品还会验证签名媒体返回 `206 Partial Content`。省略 `LIVE_VIDEO_ID` 时使用 `test:live` 生成的本地报告。
 
 ## 构建与部署
 

@@ -347,6 +347,18 @@
 .comment {
   padding: 16px 0;
   border-bottom: 1px solid #303642;
+  overflow-wrap: anywhere;
+}
+.commentReplies {
+  margin-inline-start: 18px;
+  padding-inline-start: 12px;
+  border-inline-start: 1px solid #303642;
+}
+.commentActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 .feedHeading {
   height: 48px;

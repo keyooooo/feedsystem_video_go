@@ -112,6 +112,14 @@ for (const viewport of [
       page.getByRole("navigation", { name: "主导航" }),
     ).toBeVisible();
     await expect(page.locator("video")).toHaveCount(2);
+    if (viewport.width === 1440) {
+      const offset = await page.getByRole("searchbox").evaluate((input) => {
+        const form = input.closest("form")!.getBoundingClientRect();
+        const header = input.closest("header")!.getBoundingClientRect();
+        return (form.left + form.right - header.left - header.right) / 2;
+      });
+      expect(Math.abs(offset)).toBeLessThan(1);
+    }
     const current = page
       .getByRole("region", { name: "视频流" })
       .locator("section:not([inert]) [data-player]");

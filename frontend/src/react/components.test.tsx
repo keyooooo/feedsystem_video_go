@@ -104,8 +104,8 @@ it("does not erase a new video comment draft when an old publish finishes", asyn
   authSession.getState().setTokens("token", "refresh");
   let finish!: () => void;
   server.use(
-    http.post("http://localhost:3000/api/comment/listAll", () =>
-      HttpResponse.json([]),
+    http.post("http://localhost:3000/api/comment/listThreads", () =>
+      HttpResponse.json({ comments: [], next_cursor: 0 }),
     ),
     http.post(
       "http://localhost:3000/api/comment/publish",

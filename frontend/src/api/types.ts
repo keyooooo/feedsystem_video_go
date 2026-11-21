@@ -43,6 +43,23 @@ export type Comment = {
   created_at: string
 }
 
+export type CommentThread = Comment & {
+  reply_count: number
+  removed_at?: string
+}
+
+export type CommentReply = Comment & {
+  root_comment_id: number
+  reply_to_comment_id: number
+  reply_to_username?: string
+  reply_target_deleted: boolean
+}
+
+export type CommentPage<T> = {
+  comments: T[]
+  next_cursor: number
+}
+
 export type FeedAuthor = {
   id: number
   username: string

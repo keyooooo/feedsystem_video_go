@@ -54,11 +54,13 @@ func (s *CommentService) publishReply(ctx context.Context, reply *Comment, targe
 		}
 		target = root
 		if targetID != rootID {
+			var parent Comment
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("video_id = ? AND root_comment_id = ? AND removed_at IS NULL", reply.VideoID, rootID).
-				First(&target, targetID).Error; err != nil {
+				First(&parent, targetID).Error; err != nil {
 				return err
 			}
+			target = parent
 		}
 		reply.RootCommentID = &rootID
 		reply.ReplyToCommentID = &targetID

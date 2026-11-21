@@ -8,11 +8,12 @@ React 19 + TypeScript + Vite 7 + React Router 7 + Zustand 5。界面采用炭黑
 
 ```bash
 npm ci
-cp .env.example .env.local
 npm run dev
 ```
 
-默认通过本地 `/api` 与 `/static` 代理连接 `http://8.134.84.151:8080`。修改 `.env.local` 中的 `API_PROXY_TARGET` 可切换后端。`VITE_API_BASE` 默认 `/api`，属于构建时变量；不要在 `VITE_` 变量中存储密码。
+默认的开发预览使用仓库里的竖屏、方形和横屏片源。同源模拟接口提供热榜、作者和评论，点击播放前只加载封面。预览仅供浏览，页面的网络请求和媒体由本地服务提供。
+
+只有需要验收真实 OSS 的上传或签名播放时，才配置 `API_PROXY_TARGET` 和对应的 `VITE_OSS_*` 变量，并运行 `npm run dev:oss`。它默认使用独立的 5174 端口。生产构建继续使用既有部署配置。
 
 ## 页面
 

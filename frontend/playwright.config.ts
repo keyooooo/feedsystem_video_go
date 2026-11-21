@@ -13,17 +13,26 @@ export default defineConfig({
   outputDir: external ? "test-results/production" : "test-results/dev",
   webServer: external
     ? undefined
-    : {
-        command: "npm run dev -- --port 4173",
-        url: "http://127.0.0.1:4173",
-        reuseExistingServer: !process.env.CI && !direct && !secure,
-        env: {
-          ...(direct
-            ? { VITE_OSS_DIRECT_UPLOAD: "true", VITE_OSS_UPLOAD_ORIGIN: direct }
-            : {}),
-          ...(secure ? { VITE_SECURE_SESSIONS: "true" } : {}),
+    : [
+        {
+          command: "npm exec vite -- --mode test --port 4173",
+          url: "http://127.0.0.1:4173",
+          reuseExistingServer: false,
+          env: {
+            ...(direct
+              ? {
+                  VITE_OSS_DIRECT_UPLOAD: "true",
+                  VITE_OSS_UPLOAD_ORIGIN: direct,
+                }
+              : {}),
+            ...(secure ? { VITE_SECURE_SESSIONS: "true" } : {}),
+          },
         },
-      },
+        {
+          command: "npm run dev -- --port 4176 --strictPort",
+          url: "http://127.0.0.1:4176",
+        },
+      ],
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "webkit", use: { ...devices["Desktop Safari"] } },

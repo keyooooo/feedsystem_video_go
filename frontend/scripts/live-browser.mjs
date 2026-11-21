@@ -2,7 +2,7 @@ import { chromium } from "playwright";
 import { readFileSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 const report = JSON.parse(readFileSync(".live-report.local", "utf8"));
-const server = spawn("npm", ["run", "dev", "--", "--port", "4174"], {
+const server = spawn("npm", ["run", "dev:oss", "--", "--port", "4174"], {
   detached: true,
   stdio: "ignore",
 });

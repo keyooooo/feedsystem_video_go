@@ -2,6 +2,7 @@ import FollowButton from "./FollowButton";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -767,7 +768,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
     scroll.current?.scrollTo(0, 0);
   }, [mode, keyword, hot]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = scroll.current;
     if (!hasPlayer || !element) return;
     const measure = () => setHeight(element.clientHeight);
@@ -777,7 +778,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
     return () => observer.disconnect();
   }, [hasPlayer]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Maintain the active slide when the viewport height changes.
     if (previousHeight.current === height) return;
     previousHeight.current = height;
@@ -796,7 +797,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
       void load();
   }, [current, items.length, more, loading, hasPlayer, keyword, load, error]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!hasPlayer || drawer) return;
     function key(event: KeyboardEvent) {
       if (
@@ -816,8 +817,10 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
             current + (event.key === "ArrowDown" ? 1 : -1),
           ),
         );
-        scroll.current?.scrollTo({
-          top: target * height,
+        const viewport = scroll.current;
+        if (!viewport) return;
+        viewport.scrollTo({
+          top: target * viewport.clientHeight,
           behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
             ? "instant"
             : "smooth",
@@ -826,7 +829,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
     }
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [current, height, items.length, drawer, hasPlayer]);
+  }, [current, items.length, drawer, hasPlayer]);
 
   const start = Math.max(0, current - 1);
   const end = Math.min(items.length, current + 2);

@@ -80,6 +80,7 @@ jobs:
           chmod +x "$probe_dir/bin/ffprobe"
           ffprobe -version
           go test -race -count=1 ./...
+          COMMENT_TEST_MYSQL_DSN="$OSS_TEST_MYSQL_DSN" go test -race -count=1 ./internal/video -run '^TestCommentThreadsMySQL$'
 
       - name: Go vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...

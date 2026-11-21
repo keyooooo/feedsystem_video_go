@@ -1,0 +1,146 @@
+package video
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"feedsystem_video_go/internal/apierror"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+const threadPageSize = 20
+const replyPageSize = 10
+
+type commentThread struct {
+	Comment
+	ReplyCount int `json:"reply_count"`
+}
+
+type commentReply struct {
+	Comment
+	ReplyToUsername    string `json:"reply_to_username,omitempty"`
+	ReplyTargetDeleted bool   `json:"reply_target_deleted"`
+}
+
+type commentPage[T any] struct {
+	Comments   []T  `json:"comments"`
+	NextCursor uint `json:"next_cursor"`
+}
+
+func (s *CommentService) publishReply(ctx context.Context, reply *Comment, targetID uint) (commentReply, error) {
+	reply.Content = strings.TrimSpace(reply.Content)
+	if targetID == 0 || reply.Content == "" {
+		return commentReply{}, fmt.Errorf("%w: reply target and content are required", apierror.ErrValidation)
+	}
+	db := s.repo.db.WithContext(ctx)
+	var target Comment
+	if err := db.Where("video_id = ?", reply.VideoID).First(&target, targetID).Error; err != nil {
+		return commentReply{}, err
+	}
+	rootID := target.ID
+	if target.RootCommentID != nil {
+		rootID = *target.RootCommentID
+	}
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var root Comment
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("video_id = ? AND root_comment_id IS NULL AND removed_at IS NULL", reply.VideoID).
+			First(&root, rootID).Error; err != nil {
+			return err
+		}
+		target = root
+		if targetID != rootID {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("video_id = ? AND root_comment_id = ? AND removed_at IS NULL", reply.VideoID, rootID).
+				First(&target, targetID).Error; err != nil {
+				return err
+			}
+		}
+		reply.RootCommentID = &rootID
+		reply.ReplyToCommentID = &targetID
+		return tx.Create(reply).Error
+	})
+	return commentReply{Comment: *reply, ReplyToUsername: target.Username}, err
+}
+
+func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor uint) (commentPage[commentThread], error) {
+	page := commentPage[commentThread]{Comments: []commentThread{}}
+	query := r.db.WithContext(ctx).Table("comments AS root").
+		Select("root.*, (SELECT COUNT(*) FROM comments AS reply WHERE reply.root_comment_id = root.id AND reply.removed_at IS NULL) AS reply_count").
+		Where("root.video_id = ? AND root.root_comment_id IS NULL", videoID).
+		Where("root.removed_at IS NULL OR EXISTS (SELECT 1 FROM comments AS reply WHERE reply.root_comment_id = root.id AND reply.removed_at IS NULL)")
+	if cursor != 0 {
+		query = query.Where("root.id < ?", cursor)
+	}
+	if err := query.Order("root.id DESC").Limit(threadPageSize + 1).Scan(&page.Comments).Error; err != nil {
+		return page, err
+	}
+	if len(page.Comments) > threadPageSize {
+		page.Comments = page.Comments[:threadPageSize]
+		page.NextCursor = page.Comments[threadPageSize-1].ID
+	}
+	for i := range page.Comments {
+		if page.Comments[i].RemovedAt != nil {
+			page.Comments[i].Content = ""
+		}
+	}
+	return page, nil
+}
+
+func (r *CommentRepository) listReplies(ctx context.Context, videoID, rootID, cursor uint) (commentPage[commentReply], error) {
+	page := commentPage[commentReply]{Comments: []commentReply{}}
+	var root Comment
+	if err := r.db.WithContext(ctx).Select("id").
+		Where("video_id = ? AND root_comment_id IS NULL", videoID).First(&root, rootID).Error; err != nil {
+		return page, err
+	}
+	err := r.db.WithContext(ctx).Table("comments AS reply").
+		Select(`reply.*, CASE WHEN target.removed_at IS NULL THEN COALESCE(target.username, '') ELSE '' END AS reply_to_username,
+			CASE WHEN target.id IS NULL OR target.removed_at IS NOT NULL THEN TRUE ELSE FALSE END AS reply_target_deleted`).
+		Joins("LEFT JOIN comments AS target ON target.id = reply.reply_to_comment_id").
+		Where("reply.root_comment_id = ? AND reply.removed_at IS NULL AND reply.id > ?", rootID, cursor).
+		Order("reply.id ASC").Limit(replyPageSize + 1).Scan(&page.Comments).Error
+	if len(page.Comments) > replyPageSize {
+		page.Comments = page.Comments[:replyPageSize]
+		page.NextCursor = page.Comments[replyPageSize-1].ID
+	}
+	return page, err
+}
+
+type listCommentPageRequest struct {
+	VideoID       uint `json:"video_id" binding:"required"`
+	RootCommentID uint `json:"root_comment_id"`
+	Cursor        uint `json:"cursor"`
+}
+
+func (h *CommentHandler) ListThreads(c *gin.Context) {
+	var req listCommentPageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "valid video_id required"})
+		return
+	}
+	page, err := h.service.repo.listThreads(c.Request.Context(), req.VideoID, req.Cursor)
+	if err != nil {
+		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": "could not load comments"})
+		return
+	}
+	c.JSON(200, page)
+}
+
+func (h *CommentHandler) ListReplies(c *gin.Context) {
+	var req listCommentPageRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.RootCommentID == 0 {
+		c.JSON(400, gin.H{"error": "valid video_id and root_comment_id required"})
+		return
+	}
+	page, err := h.service.repo.listReplies(c.Request.Context(), req.VideoID, req.RootCommentID, req.Cursor)
+	if err != nil {
+		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": "could not load replies"})
+		return
+	}
+	c.JSON(200, page)
+}

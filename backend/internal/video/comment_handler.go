@@ -46,6 +46,15 @@ func (h *CommentHandler) PublishComment(c *gin.Context) {
 		AuthorID: authorId,
 		Content:  req.Content,
 	}
+	if req.ReplyToCommentID != nil {
+		reply, err := h.service.publishReply(c.Request.Context(), comment, *req.ReplyToCommentID)
+		if err != nil {
+			c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"message": "comment published successfully", "comment": reply})
+		return
+	}
 	if err := h.service.Publish(c.Request.Context(), comment); err != nil {
 		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})
 		return

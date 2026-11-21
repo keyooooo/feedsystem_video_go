@@ -1,13 +1,16 @@
+import { ChevronDown, ChevronUp, Heart, Reply } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import * as comments from "../api/comment";
 import type {
   Comment,
+  CommentLikeState,
   CommentReply,
   CommentThread,
   FeedVideoItem,
 } from "../api/types";
 import {
+  Avatar,
   Empty,
   ErrorBox,
   Modal,
@@ -38,6 +41,23 @@ function mergeComments<T extends Comment>(
   return [...byId.values()].sort((left, right) =>
     descending ? right.id - left.id : left.id - right.id,
   );
+}
+
+const relativeTime = new Intl.RelativeTimeFormat("zh-CN", { numeric: "auto" });
+
+function commentTime(value: string) {
+  const date = new Date(value);
+  const minutes = Math.max(
+    0,
+    Math.floor((Date.now() - date.getTime()) / 60000),
+  );
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return relativeTime.format(-minutes, "minute");
+  if (minutes < 1440)
+    return relativeTime.format(-Math.floor(minutes / 60), "hour");
+  if (minutes < 10080)
+    return relativeTime.format(-Math.floor(minutes / 1440), "day");
+  return date.toLocaleDateString("zh-CN");
 }
 
 export function CommentPanel({
@@ -72,6 +92,12 @@ function OpenComments({
   const location = useLocation();
   const navigate = useNavigate();
   const input = useRef<HTMLTextAreaElement>(null);
+  const pendingLikes = useRef(new Set<number>());
+  const [likes, setLikes] = useState<
+    Record<number, CommentLikeState & { pending?: boolean }>
+  >({});
+  const [total, setTotal] = useState<number>();
+  const scrollArea = useRef<HTMLDivElement>(null);
   const replyRequests = useRef(new Set<number>());
   const threadRequest = useRef(0);
   const lastThreadLoad = useRef({ after: 0, preserve: false });
@@ -97,6 +123,7 @@ function OpenComments({
       try {
         const page = await comments.listThreads(videoId, after);
         if (request !== threadRequest.current) return;
+        if (page.total_count !== undefined) setTotal(page.total_count);
         setThreads((old) =>
           mergeComments(
             after || preserve ? old : [],
@@ -188,6 +215,7 @@ function OpenComments({
       if (target) {
         const reply = response.comment;
         if (!reply) throw new Error("未能确认回复，请刷新评论后重试");
+        setTotal((old) => (old === undefined ? old : old + 1));
         setThreads((old) =>
           old.map((row) =>
             row.id === target.rootId
@@ -220,6 +248,7 @@ function OpenComments({
     setFailure(null);
     try {
       await comments.remove(deleting.id);
+      setTotal((old) => (old === undefined ? old : Math.max(0, old - 1)));
       if (deleting.id === deleting.rootId) {
         const removedAt = new Date().toISOString();
         deletedRoots.current.set(deleting.id, removedAt);
@@ -261,38 +290,148 @@ function OpenComments({
     }
   }
 
-  function renderActions(root: CommentThread, row: Comment) {
+  async function toggleLike(row: CommentThread | CommentReply) {
+    if (!session.token) {
+      navigate(
+        "/account?redirect=" +
+          encodeURIComponent(location.pathname + location.search),
+      );
+      return;
+    }
+    if (pendingLikes.current.has(row.id)) return;
+    const previous = likes[row.id] ?? {
+      likes_count: row.likes_count ?? 0,
+      is_liked: !!row.is_liked,
+    };
+    const liked = !previous.is_liked;
+    pendingLikes.current.add(row.id);
+    setFailure(null);
+    setLikes((old) => ({
+      ...old,
+      [row.id]: {
+        is_liked: liked,
+        likes_count: Math.max(0, previous.likes_count + (liked ? 1 : -1)),
+        pending: true,
+      },
+    }));
+    try {
+      const confirmed = await comments.setLike(row.id, liked);
+      setLikes((old) => ({ ...old, [row.id]: confirmed }));
+    } catch (error) {
+      setLikes((old) => ({ ...old, [row.id]: previous }));
+      setFailure(error);
+    } finally {
+      pendingLikes.current.delete(row.id);
+    }
+  }
+
+  function collapse(rootId: number) {
+    updateReplies(rootId, (old) => ({ ...old, expanded: false }));
+    requestAnimationFrame(() => {
+      const root = scrollArea.current?.querySelector<HTMLElement>(
+        `[data-comment-root="${rootId}"]`,
+      );
+      root
+        ?.querySelector("button[aria-expanded]")
+        ?.scrollIntoView({ block: "nearest" });
+    });
+  }
+
+  function renderComment(
+    root: CommentThread,
+    row: CommentThread | CommentReply,
+  ) {
+    const like = likes[row.id] ?? row;
+    const isReply = "reply_to_comment_id" in row;
+    const deletedTarget =
+      isReply &&
+      (row.reply_target_deleted ||
+        deletedReplies.current.has(row.reply_to_comment_id) ||
+        deletedRoots.current.has(row.reply_to_comment_id));
+    const replyName =
+      isReply &&
+      (deletedTarget
+        ? "已删除的评论"
+        : row.reply_to_username && `@${row.reply_to_username}`);
     return (
-      <div className={s.commentActions}>
-        {!root.removed_at && (
-          <button
-            type="button"
-            disabled={sending}
-            onClick={() => selectReply(root.id, row)}
-          >
-            回复
-          </button>
-        )}
-        {identity?.account_id === row.author_id && (
-          <button
-            type="button"
-            disabled={sending}
-            onClick={() => {
-              setFailure(null);
-              setDeleting({ id: row.id, rootId: root.id });
-            }}
-          >
-            删除
-          </button>
-        )}
+      <div className={s.commentRow}>
+        <Link
+          to={`/u/${row.author_id}`}
+          aria-label={`查看 ${row.username} 的主页`}
+          className={s.commentAvatar}
+        >
+          <Avatar name={row.username} url={row.avatar_url} />
+        </Link>
+        <div className={s.commentCopy}>
+          <div className={s.commentByline}>
+            <Link to={`/u/${row.author_id}`}>
+              <strong>{row.username}</strong>
+            </Link>
+            {replyName && (
+              <span className={s.commentTarget}>
+                <Reply size={14} aria-hidden="true" /> {replyName}
+              </span>
+            )}
+          </div>
+          <p>{row.content}</p>
+          <div className={s.commentActions}>
+            <time dateTime={row.created_at}>{commentTime(row.created_at)}</time>
+            {!root.removed_at && (
+              <button
+                type="button"
+                className={s.commentAction}
+                aria-label="回复"
+                title="回复"
+                disabled={sending}
+                onClick={() => selectReply(root.id, row)}
+              >
+                <Reply size={18} aria-hidden="true" />
+              </button>
+            )}
+            <button
+              type="button"
+              className={s.commentAction}
+              aria-label={like.is_liked ? "取消评论点赞" : "点赞评论"}
+              aria-pressed={!!like.is_liked}
+              disabled={likes[row.id]?.pending}
+              onClick={() => void toggleLike(row)}
+            >
+              <Heart
+                size={18}
+                fill={like.is_liked ? "currentColor" : "none"}
+                aria-hidden="true"
+              />
+              <span>{like.likes_count ?? 0}</span>
+            </button>
+            {identity?.account_id === row.author_id && (
+              <button
+                type="button"
+                className={s.commentAction}
+                disabled={sending}
+                onClick={() => {
+                  setFailure(null);
+                  setDeleting({ id: row.id, rootId: root.id });
+                }}
+              >
+                删除
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <>
-      <Modal title="评论" inline={wide} open onClose={onClose}>
-        <div className={s.dialogBody}>
+      <Modal
+        title="评论"
+        headingCount={total}
+        inline={wide}
+        open
+        onClose={onClose}
+      >
+        <div className={s.dialogBody} ref={scrollArea}>
           {loading && !threads.length && (
             <div
               className={s.skeleton}
@@ -308,36 +447,33 @@ function OpenComments({
           {threads.map((root) => {
             const thread = replies[root.id];
             return (
-              <section key={root.id} className={s.commentThread}>
+              <section
+                key={root.id}
+                className={s.commentThread}
+                data-comment-root={root.id}
+              >
                 <article className={s.comment}>
                   {root.removed_at ? (
                     <p>该评论已删除</p>
                   ) : (
-                    <>
-                      <strong>{root.username}</strong>
-                      <p>{root.content}</p>
-                      <small>
-                        {new Date(root.created_at).toLocaleString()}
-                      </small>
-                      {renderActions(root, root)}
-                    </>
+                    renderComment(root, root)
                   )}
-                  {root.reply_count > 0 && (
+                  {root.reply_count > 0 && !thread?.expanded && (
                     <button
                       type="button"
-                      aria-expanded={!!thread?.expanded}
+                      className={s.commentFold}
+                      aria-expanded={false}
                       onClick={() => {
-                        if (thread?.expanded || thread?.cursor !== undefined) {
+                        if (thread?.cursor !== undefined)
                           updateReplies(root.id, (old) => ({
                             ...old,
-                            expanded: !old.expanded,
+                            expanded: true,
                           }));
-                        } else void loadReplies(root.id);
+                        else void loadReplies(root.id);
                       }}
                     >
-                      {thread?.expanded
-                        ? "收起回复"
-                        : `展开 ${root.reply_count} 条回复`}
+                      展开 {root.reply_count} 条回复{" "}
+                      <ChevronDown size={16} aria-hidden="true" />
                     </button>
                   )}
                 </article>
@@ -345,29 +481,7 @@ function OpenComments({
                   <div className={s.commentReplies}>
                     {thread.items.map((reply) => (
                       <article key={reply.id} className={s.comment}>
-                        <strong>{reply.username}</strong>
-                        <p>
-                          {reply.reply_target_deleted ||
-                          deletedReplies.current.has(
-                            reply.reply_to_comment_id,
-                          ) ||
-                          deletedRoots.current.has(
-                            reply.reply_to_comment_id,
-                          ) ? (
-                            <span className={s.muted}>回复已删除的评论 · </span>
-                          ) : (
-                            reply.reply_to_username && (
-                              <span className={s.muted}>
-                                回复 @{reply.reply_to_username} ·{" "}
-                              </span>
-                            )
-                          )}
-                          {reply.content}
-                        </p>
-                        <small>
-                          {new Date(reply.created_at).toLocaleString()}
-                        </small>
-                        {renderActions(root, reply)}
+                        {renderComment(root, reply)}
                       </article>
                     ))}
                     {thread.loading && <p role="status">正在加载回复…</p>}
@@ -384,6 +498,14 @@ function OpenComments({
                         加载更多回复
                       </button>
                     )}
+                    <button
+                      type="button"
+                      className={s.commentFold}
+                      aria-expanded
+                      onClick={() => collapse(root.id)}
+                    >
+                      收起回复 <ChevronUp size={16} aria-hidden="true" />
+                    </button>
                   </div>
                 )}
               </section>
@@ -422,25 +544,24 @@ function OpenComments({
             </button>
           </div>
         )}
-        <label>
-          你的评论
+        <div className={s.commentComposer}>
           <textarea
+            aria-label="你的评论"
             ref={input}
+            rows={1}
             value={content}
             disabled={sending}
             onChange={(event) => setContent(event.target.value)}
-            placeholder={
-              target ? `回复 @${target.username}` : "友善表达，分享想法"
-            }
+            placeholder={target ? `回复 @${target.username}` : "留下一条评论…"}
           />
-        </label>
-        <button
-          className={s.primary}
-          disabled={sending || !content.trim()}
-          onClick={() => void send()}
-        >
-          {sending ? "发送中…" : target ? "发送回复" : "发送评论"}
-        </button>
+          <button
+            type="button"
+            disabled={sending || !content.trim()}
+            onClick={() => void send()}
+          >
+            {sending ? "发送中…" : target ? "发送回复" : "发送评论"}
+          </button>
+        </div>
       </Modal>
       <Modal
         title="删除这条评论？"

@@ -344,21 +344,116 @@
   overflow: auto;
   flex: 1;
 }
-.comment {
-  padding: 16px 0;
+.dialogCount {
+  margin-inline-start: 10px;
+  color: var(--muted);
+  font-size: 0.8em;
+}
+.commentThread {
+  padding-block: 8px;
   border-bottom: 1px solid #303642;
+}
+.comment {
+  padding: 12px 0 4px;
   overflow-wrap: anywhere;
 }
+.commentRow {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+}
+.commentAvatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+.commentAvatar > span {
+  width: 100%;
+  height: 100%;
+}
+.commentCopy > p {
+  margin: 2px 0;
+}
+.commentByline,
+.commentTarget {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.commentTarget,
+.commentActions {
+  color: var(--muted);
+  font-size: 13px;
+}
 .commentReplies {
-  margin-inline-start: 18px;
-  padding-inline-start: 12px;
+  margin-inline-start: 20px;
+  padding-inline-start: 18px;
   border-inline-start: 1px solid #303642;
+}
+.commentReplies .commentRow {
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+.commentReplies .commentAvatar {
+  width: 34px;
+  height: 34px;
 }
 .commentActions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
+}
+.commentActions > time {
+  margin-inline-end: 4px;
+}
+.commentAction,
+.commentFold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.commentAction:hover,
+.commentFold:hover {
+  color: var(--text);
+}
+.commentAction[aria-pressed="true"] {
+  color: #f05d72;
+}
+.commentFold {
+  margin-inline-start: 46px;
+  font-size: 13px;
+}
+.commentComposer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: #242832;
+}
+.commentComposer textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 24dvh;
+  padding: 10px 6px;
+  border: 0;
+  background: transparent;
+  resize: vertical;
+}
+.commentComposer button {
+  border: 0;
+  background: transparent;
+  color: #f05d72;
+  white-space: nowrap;
 }
 .feedHeading {
   height: 48px;

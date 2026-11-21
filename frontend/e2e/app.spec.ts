@@ -112,6 +112,25 @@ for (const viewport of [
       page.getByRole("navigation", { name: "主导航" }),
     ).toBeVisible();
     await expect(page.locator("video")).toHaveCount(2);
+    const current = page
+      .getByRole("region", { name: "视频流" })
+      .locator("section:not([inert]) [data-player]");
+    await expect(
+      current.getByRole("button", { name: "关注", exact: true }),
+    ).toHaveCount(0);
+    const sizes = await current.evaluate((stage) => {
+      const name = stage.querySelector('a[href="/u/2"]')!;
+      const title = stage.querySelector("h2")!;
+      const description = stage.querySelector("p")!;
+      return [name, title, description].map((element) =>
+        Number.parseFloat(getComputedStyle(element).fontSize),
+      );
+    });
+    expect(sizes[0]).toBeGreaterThan(sizes[1]!);
+    expect(sizes[1]).toBeGreaterThan(sizes[2]!);
+    await expect(
+      current.getByRole("button", { name: "点赞", exact: true }),
+    ).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,

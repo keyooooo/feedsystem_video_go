@@ -952,12 +952,9 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
                     toggleMute: () => setMuted((value) => !value),
                     metadata: (
                       <div className={s.homeMeta}>
-                        <div>
-                          <Link to={`/u/${item.author.id}`}>
-                            @{item.author.username}
-                          </Link>
-                          {visible && <FollowButton id={item.author.id} />}
-                        </div>
+                        <Link to={`/u/${item.author.id}`}>
+                          @{item.author.username}
+                        </Link>
                         <h2>
                           <Link to={`/video/${item.id}`}>{item.title}</Link>
                         </h2>

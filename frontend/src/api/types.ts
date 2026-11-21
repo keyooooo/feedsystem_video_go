@@ -43,12 +43,19 @@ export type Comment = {
   created_at: string
 }
 
-export type CommentThread = Comment & {
+export type CommentLikeState = {
+  likes_count: number
+  is_liked: boolean
+}
+
+type CommentPresentation = CommentLikeState & { avatar_url?: string }
+
+export type CommentThread = Comment & CommentPresentation & {
   reply_count: number
   removed_at?: string
 }
 
-export type CommentReply = Comment & {
+export type CommentReply = Comment & CommentPresentation & {
   root_comment_id: number
   reply_to_comment_id: number
   reply_to_username?: string
@@ -58,6 +65,7 @@ export type CommentReply = Comment & {
 export type CommentPage<T> = {
   comments: T[]
   next_cursor: number
+  total_count?: number
 }
 
 export type FeedAuthor = {

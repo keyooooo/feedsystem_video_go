@@ -77,6 +77,7 @@ export function ErrorBox({
 }
 export function Modal({
   title,
+  headingCount,
   open,
   onClose,
   children,
@@ -84,10 +85,21 @@ export function Modal({
 }: {
   inline?: boolean;
   title: string;
+  headingCount?: number;
   open: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
+  const heading = (
+    <>
+      {title}
+      {headingCount !== undefined && (
+        <span aria-hidden="true" className={s.dialogCount}>
+          {headingCount}
+        </span>
+      )}
+    </>
+  );
   if (inline)
     return open ? (
       <aside
@@ -99,7 +111,7 @@ export function Modal({
         }}
       >
         <div className={s.topline}>
-          <h2>{title}</h2>
+          <h2>{heading}</h2>
           <button aria-label="关闭评论" onClick={onClose}>
             <X size={20} />
           </button>
@@ -118,7 +130,7 @@ export function Modal({
         <Dialog.Overlay className={s.overlay} />
         <Dialog.Content className={s.dialog} aria-describedby={undefined}>
           <div className={s.topline}>
-            <Dialog.Title>{title}</Dialog.Title>
+            <Dialog.Title>{heading}</Dialog.Title>
             <Dialog.Close asChild>
               <button aria-label="关闭">
                 <X size={20} />

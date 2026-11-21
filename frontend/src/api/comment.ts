@@ -1,6 +1,6 @@
 import { postJson } from './client'
 import { normalizeCommentList } from './normalize'
-import type { Comment, CommentPage, CommentReply, CommentThread, MessageResponse } from './types'
+import type { Comment, CommentLikeState, CommentPage, CommentReply, CommentThread, MessageResponse } from './types'
 
 export async function listAll(videoId: number) {
   const comments = await postJson<Comment[] | null>('/comment/listAll', { video_id: videoId })
@@ -25,4 +25,8 @@ export function publish(videoId: number, content: string, replyTo?: number) {
 
 export function remove(commentId: number) {
   return postJson<MessageResponse>('/comment/delete', { comment_id: commentId }, { authRequired: true })
+}
+
+export function setLike(commentId: number, liked: boolean) {
+  return postJson<CommentLikeState>('/comment/setLike', { comment_id: commentId, liked }, { authRequired: true })
 }

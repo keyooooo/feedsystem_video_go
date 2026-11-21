@@ -767,6 +767,9 @@ test("threaded comments page replies and retain a failed nested reply draft", as
     content: "一级评论",
     created_at: time,
     reply_count: 2,
+    avatar_url: "/static/poster.png",
+    likes_count: 3,
+    is_liked: false,
   };
   const first = {
     id: 51,
@@ -797,7 +800,9 @@ test("threaded comments page replies and retain a failed nested reply draft", as
   };
   let attempts = 0;
   await page.route("**/api/comment/listThreads", (route) =>
-    route.fulfill({ json: { comments: [root], next_cursor: 0 } }),
+    route.fulfill({
+      json: { comments: [root], next_cursor: 0, total_count: 3 },
+    }),
   );
   await page.route("**/api/comment/listReplies", (route) => {
     const cursor = route.request().postDataJSON().cursor;
@@ -822,9 +827,39 @@ test("threaded comments page replies and retain a failed nested reply draft", as
     expect(route.request().postDataJSON()).toEqual({ comment_id: root.id });
     return route.fulfill({ json: { message: "ok" } });
   });
+  let likeRequests = 0;
+  await page.route("**/api/comment/setLike", (route) => {
+    const { comment_id, liked } = route.request().postDataJSON();
+    expect(comment_id).toBe(root.id);
+    expect(liked).toBe(likeRequests < 2);
+    return ++likeRequests === 1
+      ? route.fulfill({ status: 503, json: { error: "点赞暂不可用" } })
+      : route.fulfill({
+          json: { likes_count: liked ? 4 : 3, is_liked: liked },
+        });
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await page.getByRole("button", { name: "打开评论" }).first().click();
+  const rootRow = page.locator("article").filter({ hasText: root.content });
+  await expect(
+    rootRow.getByRole("link", { name: "查看 楼主 的主页" }).locator("img"),
+  ).toBeVisible();
+  const likeComment = rootRow.getByRole("button", {
+    name: "点赞评论",
+    exact: true,
+  });
+  await likeComment.click();
+  await expect(page.getByRole("alert")).toHaveText("点赞暂不可用");
+  await expect(likeComment).toHaveText("3");
+  await likeComment.click();
+  const unlikeComment = rootRow.getByRole("button", {
+    name: "取消评论点赞",
+    exact: true,
+  });
+  await expect(unlikeComment).toHaveText("4");
+  await unlikeComment.click();
+  await expect(likeComment).toHaveText("3");
   await page.getByRole("button", { name: "展开 2 条回复" }).click();
   await expect(page.getByText("第一条回复", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "加载更多回复" }).click();
@@ -843,6 +878,17 @@ test("threaded comments page replies and retain a failed nested reply draft", as
   await send.click();
   await expect(page.getByText("楼中楼", { exact: false })).toBeVisible();
   await expect(input).toHaveValue("");
+  const thread = page.locator("[data-comment-root='50']");
+  const foldAfterReplies = await thread.evaluate((element) => {
+    const lastReply = [...element.querySelectorAll("article")].at(-1)!;
+    const fold = [...element.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("收起回复"),
+    )!;
+    return !!(
+      lastReply.compareDocumentPosition(fold) & Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  });
+  expect(foldAfterReplies).toBe(true);
   await page.getByRole("button", { name: "收起回复" }).click();
   await expect(
     page.getByRole("button", { name: "展开 3 条回复" }),

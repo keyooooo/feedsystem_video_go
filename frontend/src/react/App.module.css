@@ -934,14 +934,17 @@
 }
 
 @media (min-width: 1200px) {
+  .content {
+    --comment-sidebar-width: clamp(400px, 32vw, 480px);
+  }
   .inlineComments {
-    width: 360px;
+    width: var(--comment-sidebar-width);
     top: 104px;
     bottom: 24px;
     right: 24px;
   }
   .content:has([data-inline-comments]) .feed,
   .content:has([data-inline-comments]) .detailStage {
-    margin-right: 384px;
+    margin-right: calc(var(--comment-sidebar-width) + 24px);
   }
 }

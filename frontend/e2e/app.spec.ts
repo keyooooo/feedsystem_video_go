@@ -655,6 +655,17 @@ test("likes preserve state on failure and comments can retry and delete", async 
     page.getByRole("button", { name: "取消点赞", exact: true }).first(),
   ).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "打开评论" }).first().click();
+  const panel = page.getByRole("complementary", { name: "评论" });
+  const { width, gap } = await panel.evaluate((element) => {
+    const sidebar = element.getBoundingClientRect();
+    const feed = document.querySelector("[data-feed-scroll]")!;
+    return {
+      width: sidebar.width,
+      gap: sidebar.left - feed.getBoundingClientRect().right,
+    };
+  });
+  expect(width).toBeGreaterThan(440);
+  expect(gap).toBeGreaterThanOrEqual(16);
   await page.getByLabel("你的评论").fill("我的评论");
   await page.getByRole("button", { name: "发送评论" }).click();
   await expect(page.getByRole("alert")).toHaveText("评论暂不可用");

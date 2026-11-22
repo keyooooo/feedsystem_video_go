@@ -180,9 +180,7 @@ test("hot ranking and public profile use actual API shapes", async ({
   page,
 }, info) => {
   await page.goto("/hot");
-  await expect(
-    page.getByRole("heading", { name: "此刻，大家都在看" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "点赞榜" })).toBeVisible();
   await expect(page.locator("article")).toHaveCount(12);
   await page.screenshot({
     path: info.outputPath("ranking.png"),
@@ -324,7 +322,7 @@ test("confirms SPA navigation during upload and cancels instead of publishing", 
   await expect(
     page.getByRole("button", { name: "取消上传", exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "榜单总览", exact: true }).click();
+  await page.getByRole("link", { name: "榜单", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "取消当前上传？" }),
   ).toBeVisible();
@@ -335,7 +333,7 @@ test("confirms SPA navigation during upload and cancels instead of publishing", 
 test("keyboard playback navigation, comment focus and accessibility remain usable", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?feed=hot");
   await page.getByRole("region", { name: "视频流" }).focus();
   await page.keyboard.press("ArrowDown");
   await expect(
@@ -402,11 +400,11 @@ test("local search does not scan subsequent feed pages without an explicit reque
   page,
 }) => {
   let nextPages = 0;
-  await page.route("**/api/feed/listByPopularity", async (route) => {
-    const next = route.request().postDataJSON().offset > 0;
+  await page.route("**/api/feed/listLatest", async (route) => {
+    const next = route.request().postDataJSON().latest_time > 0;
     if (next) nextPages++;
     await route.fulfill({
-      json: { video_list: items, has_more: !next, as_of: 60, next_offset: 12 },
+      json: { video_list: items, has_more: !next, next_time: 60 },
     });
   });
   await page.goto("/?q=no-matching-title");
@@ -454,7 +452,7 @@ test("hot feed retries the database cursor and preserves the current slide", asy
       });
     }
   });
-  await page.goto("/");
+  await page.goto("/?feed=hot");
   const feed = page.getByRole("region", { name: "视频流" });
   await feed.focus();
   await page.keyboard.press("ArrowDown");
@@ -489,7 +487,7 @@ test("player adapts its stage to real portrait, square and landscape videos", as
     "/static/square.mp4",
     "/static/landscape.mp4",
   ];
-  await page.route("**/api/feed/listByPopularity", (route) =>
+  await page.route("**/api/feed/listLatest", (route) =>
     route.fulfill({
       json: {
         video_list: items
@@ -529,6 +527,35 @@ test("player adapts its stage to real portrait, square and landscape videos", as
   await page.screenshot({ path: info.outputPath("home-mobile-landscape.png") });
 });
 
+test("uses distinct feeds for the four sidebar destinations", async ({
+  page,
+}) => {
+  await signedIn(page);
+  const latest = page.waitForRequest("**/api/feed/listLatest");
+  await page.goto("/");
+  expect((await latest).postDataJSON()).toEqual({ limit: 10, latest_time: 0 });
+  const nav = page.getByRole("navigation", { name: "主导航" });
+  expect(await nav.getByRole("link").allTextContents()).toEqual([
+    "推荐",
+    "热榜",
+    "榜单",
+    "关注",
+  ]);
+  for (const [name, endpoint] of [
+    ["热榜", "listByPopularity"],
+    ["榜单", "listLikesCount"],
+    ["关注", "listByFollowing"],
+  ]) {
+    const request = page.waitForRequest(`**/api/feed/${endpoint}`);
+    await nav.getByRole("link", { name, exact: true }).click();
+    await request;
+    await expect(nav.getByRole("link", { name, exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  }
+});
+
 test("signed-in notification badge clears after marking a notification read", async ({
   page,
 }) => {
@@ -536,7 +563,12 @@ test("signed-in notification badge clears after marking a notification read", as
   let read = false;
   await page.route("**/api/notification/*", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
-    if (pathname.endsWith("/unreadCount")) {
+    if (pathname.endsWith("/stream")) {
+      await route.fulfill({
+        contentType: "text/event-stream",
+        body: ": keepalive\n\n",
+      });
+    } else if (pathname.endsWith("/unreadCount")) {
       await route.fulfill({ json: { count: read ? 0 : 1 } });
     } else if (pathname.endsWith("/list")) {
       await route.fulfill({
@@ -563,10 +595,10 @@ test("signed-in notification badge clears after marking a notification read", as
   ).toBeVisible();
   await page.getByRole("button", { name: "通知，1 条未读" }).click();
   const dialog = page.getByRole("dialog", { name: "通知" });
-  await dialog.getByRole("button", { name: "有人点赞了你的作品" }).click();
+  await dialog.getByRole("button", { name: /有人点赞了你的作品/ }).click();
   await expect(dialog.getByText("有人点赞了你的作品")).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: "有人点赞了你的作品" }),
+    dialog.getByRole("button", { name: /有人点赞了你的作品/ }),
   ).toHaveCount(0);
   await dialog.getByRole("button", { name: "关闭" }).click();
   await expect(

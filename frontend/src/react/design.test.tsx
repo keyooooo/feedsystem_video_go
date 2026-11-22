@@ -9,9 +9,10 @@ it("exposes the navigation and account entrances and marks the active page", () 
     </MemoryRouter>,
   );
   for (const name of [
+    "推荐",
     "热榜",
+    "榜单",
     "关注",
-    "榜单总览",
     "通知",
     "消息",
     "发布",

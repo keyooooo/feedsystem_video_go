@@ -43,6 +43,8 @@ export function demoPreview(): Plugin {
           return send(405, { error: "本地预览仅供浏览" });
 
         switch (path) {
+          case "/api/feed/listLatest":
+          case "/api/feed/listLikesCount":
           case "/api/feed/listByPopularity":
             return send(200, { video_list: videos, has_more: false });
           case "/api/account/findByID":

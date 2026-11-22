@@ -31,3 +31,22 @@ it("preserves snapshot and compound cursors without coercing them into offsets",
     latest_time: 0,
   });
 });
+
+it("uses independent time and likes cursors", () => {
+  expect(pagingInput("latest", { next_time: 85 }, false)).toEqual({
+    limit: 10,
+    latest_time: 85,
+  });
+  expect(pagingInput("ranking", {}, true)).toEqual({ limit: 10 });
+  expect(
+    pagingInput(
+      "ranking",
+      { next_likes_count_before: 0, next_id_before: 18 },
+      false,
+    ),
+  ).toEqual({
+    limit: 10,
+    likes_count_before: 0,
+    id_before: 18,
+  });
+});

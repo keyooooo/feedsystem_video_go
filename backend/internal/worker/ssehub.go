@@ -107,7 +107,7 @@ func (h *SSEHub) SSEHandler(c *gin.Context) {
 
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.WriteHeader(http.StatusOK)
 
 	ch := h.Subscribe(userID)
@@ -115,6 +115,9 @@ func (h *SSEHub) SSEHandler(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	flusher, _ := c.Writer.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
+	}
 	value, _ := c.Get(auth.LiveSessionCheck)
 	sessionValid, _ := value.(func() bool)
 

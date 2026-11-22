@@ -143,7 +143,11 @@ export function Modal({
     </Dialog.Root>
   );
 }
-export function useLoad<T>(key: string, load: () => Promise<T>) {
+export function useLoad<T>(
+  key: string,
+  load: () => Promise<T>,
+  retainData = false,
+) {
   const fn = useRef(load);
   fn.current = load;
   const [retry, setRetry] = useState(0);
@@ -155,18 +159,29 @@ export function useLoad<T>(key: string, load: () => Promise<T>) {
   }>({ key, data: null, error: null, loading: true });
   useEffect(() => {
     let active = true;
-    setState({ key, data: null, error: null, loading: true });
+    setState((previous) => ({
+      key,
+      data: retainData && previous.key === key ? previous.data : null,
+      error: null,
+      loading: true,
+    }));
     fn.current()
       .then((data) => {
         if (active) setState({ key, data, error: null, loading: false });
       })
       .catch((error) => {
-        if (active) setState({ key, data: null, error, loading: false });
+        if (active)
+          setState((previous) => ({
+            key,
+            data: retainData ? previous.data : null,
+            error,
+            loading: false,
+          }));
       });
     return () => {
       active = false;
     };
-  }, [key, retry]);
+  }, [key, retry, retainData]);
   const reload = useCallback(() => setRetry((v) => v + 1), []);
   return {
     ...(state.key === key

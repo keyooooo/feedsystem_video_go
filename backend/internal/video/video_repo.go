@@ -120,3 +120,16 @@ func (vr *VideoRepository) TotalLikesByAuthor(ctx context.Context, authorID uint
 	}
 	return total, nil
 }
+
+func (vr *VideoRepository) likedWorks(ctx context.Context, viewerID, authorID uint) (map[uint]bool, error) {
+	var likedIDs []uint
+	err := vr.db.WithContext(ctx).Model(&Like{}).
+		Joins("JOIN videos ON videos.id = likes.video_id").
+		Where("likes.account_id = ? AND videos.author_id = ?", viewerID, authorID).
+		Pluck("likes.video_id", &likedIDs).Error
+	liked := make(map[uint]bool, len(likedIDs))
+	for _, id := range likedIDs {
+		liked[id] = true
+	}
+	return liked, err
+}

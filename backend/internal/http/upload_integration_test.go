@@ -145,6 +145,25 @@ func TestOSSUploadAPI(t *testing.T) {
 	expect("POST", "/video/publish", `{"title":"bad","play_url":"https://other.example/v.mp4"}`, owner.ID, 400)
 	expect("POST", "/video/publish", publish, peer.ID, 404)
 	result := expect("POST", "/video/publish", publish, owner.ID, 200)
+	if err := db.Create(&video.Like{VideoID: result.ID, AccountID: peer.ID, CreatedAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Where("video_id = ? AND account_id = ?", result.ID, peer.ID).Delete(&video.Like{}) })
+	worksRequest := fmt.Sprintf(`{"author_id":%d}`, owner.ID)
+	for _, viewer := range []uint{0, owner.ID, peer.ID} {
+		rec := req("POST", "/video/listByAuthorID", worksRequest, viewer)
+		var works []struct {
+			ID      uint  `json:"id"`
+			IsLiked *bool `json:"is_liked"`
+		}
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &works) != nil || len(works) != 1 || works[0].ID != result.ID {
+			t.Fatalf("unexpected works for viewer %d: %d %s", viewer, rec.Code, rec.Body.String())
+		}
+		if got := works[0].IsLiked; (got == nil) != (viewer == 0) || got != nil && *got != (viewer == peer.ID) {
+			t.Fatalf("incorrect viewer like state for %d: %s", viewer, rec.Body.String())
+		}
+	}
+
 	if retry := expect("POST", "/video/publish", publish, owner.ID, 200); retry.ID != result.ID || result.Value != "/api/media/assets/"+film.Upload.ID {
 		t.Fatalf("unstable publication %#v", result)
 	}

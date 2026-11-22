@@ -223,6 +223,25 @@ func (vh *VideoHandler) ListByAuthorID(c *gin.Context) {
 	if videos == nil {
 		videos = []Video{}
 	}
+	viewerID, _ := jwt.GetAccountID(c)
+	c.Header("Cache-Control", "private, no-store")
+	if viewerID != 0 && len(videos) != 0 {
+		liked, err := vh.service.repo.likedWorks(c.Request.Context(), viewerID, req.AuthorID)
+		if err != nil {
+			c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})
+			return
+		}
+		type viewerVideo struct {
+			Video
+			IsLiked bool `json:"is_liked"`
+		}
+		works := make([]viewerVideo, 0, len(videos))
+		for _, v := range videos {
+			works = append(works, viewerVideo{Video: v, IsLiked: liked[v.ID]})
+		}
+		c.JSON(200, works)
+		return
+	}
 	c.JSON(200, videos)
 }
 

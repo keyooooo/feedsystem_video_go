@@ -32,6 +32,7 @@ export type Video = {
   cover_url: string
   create_time: string
   likes_count: number
+  is_liked?: boolean
 }
 
 export type Comment = {

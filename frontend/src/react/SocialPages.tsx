@@ -65,7 +65,7 @@ export function ProfilePage({ own = false }: { own?: boolean }) {
     if (!Number.isSafeInteger(id) || id <= 0) throw new Error("用户暂不可用");
     return postJson<Profile>("/account/getProfile", { account_id: id });
   });
-  const works = useLoad(`${id}:${tab}`, () =>
+  const works = useLoad(`${id}:${tab}:${session.revision}`, () =>
     tab === "likes" ? likes.listMyLikedVideos() : video.listByAuthorId(id),
   );
   const people = useLoad(`${id}:${list}:${session.revision}`, async () =>
@@ -88,13 +88,12 @@ export function ProfilePage({ own = false }: { own?: boolean }) {
               name={profile.account.username}
               url={profile.account.avatar_url}
             />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p className={s.eyebrow}>{own ? "我的创作空间" : "创作者"}</p>
+            <div className={s.profileIdentity}>
               <h1>@{profile.account.username}</h1>
-              <p className={s.muted}>
-                {profile.account.bio || "每一个平凡的日子，都值得被记录。"}
-              </p>
-              <div className={s.row}>
+              {profile.account.bio && (
+                <p className={s.muted}>{profile.account.bio}</p>
+              )}
+              <div className={s.profileStats}>
                 <span>
                   <strong>{profile.video_count}</strong> 作品
                 </span>
@@ -118,19 +117,21 @@ export function ProfilePage({ own = false }: { own?: boolean }) {
               </div>
             </div>
             {own ? (
-              <Link to="/settings">
+              <Link className={s.profileSecondary} to="/settings">
                 <SettingsIcon /> 编辑资料
               </Link>
             ) : (
               identity?.account_id !== id && (
-                <div className={s.row}>
+                <div className={s.profileActions}>
                   <FollowButton id={id} onChanged={result.reload} />
-                  <Link to={`/messages/${id}`}>私信 ↗</Link>
+                  <Link className={s.profileSecondary} to={`/messages/${id}`}>
+                    私信
+                  </Link>
                 </div>
               )
             )}
           </div>
-          <div className={s.tabs}>
+          <div className={s.profileTabs} aria-label="作品分类">
             {["works", ...(own ? ["likes"] : [])].map((key) => (
               <button
                 key={key}
@@ -147,7 +148,14 @@ export function ProfilePage({ own = false }: { own?: boolean }) {
           ) : works.data?.length ? (
             <div className={s.works}>
               {works.data.map((v) => (
-                <VideoCard key={v.id} item={fromVideo(v)} />
+                <VideoCard
+                  key={v.id}
+                  item={fromVideo(
+                    tab === "likes" ? { ...v, is_liked: true } : v,
+                  )}
+                  profile
+                  showAuthor={tab === "likes"}
+                />
               ))}
             </div>
           ) : (

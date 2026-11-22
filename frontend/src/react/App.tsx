@@ -165,7 +165,13 @@ export default function App() {
             )}
           </div>
         </header>
-        <div className={home ? `${s.content} ${s.homeContent}` : s.content}>
+        <div
+          className={
+            home || /^\/video\/[^/]+$/.test(location.pathname)
+              ? `${s.content} ${s.homeContent}`
+              : s.content
+          }
+        >
           <Suspense
             fallback={
               <div

@@ -204,7 +204,7 @@ test("hot ranking and public profile use actual API shapes", async ({
   page,
 }, info) => {
   await page.goto("/hot");
-  await expect(page.getByRole("heading", { name: "点赞榜" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "点赞榜" })).toBeVisible();
   await expect(page.locator("article")).toHaveCount(12);
   await page.screenshot({
     path: info.outputPath("ranking.png"),
@@ -361,7 +361,9 @@ test("keyboard playback navigation, comment focus and accessibility remain usabl
   await page.getByRole("region", { name: "视频流" }).focus();
   await page.keyboard.press("ArrowDown");
   await expect(
-    page.getByRole("heading", { name: "热榜第 2 位" }),
+    page
+      .locator("[data-feed-scroll] section:not([inert])")
+      .getByRole("heading", { name: "城市里的光 2" }),
   ).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "打开评论" }).first().click();
@@ -482,18 +484,24 @@ test("hot feed retries the database cursor and preserves the current slide", asy
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("alert")).toContainText("热榜暂时无法加载");
   await expect(
-    page.getByRole("heading", { name: "热榜第 2 位" }),
+    page
+      .locator("[data-feed-scroll] section:not([inert])")
+      .getByRole("heading", { name: "城市里的光 2" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "重试" }).click();
   await expect.poll(() => attempts).toBe(2);
   await expect(
-    page.getByRole("heading", { name: "热榜第 2 位" }),
+    page
+      .locator("[data-feed-scroll] section:not([inert])")
+      .getByRole("heading", { name: "城市里的光 2" }),
   ).toBeVisible();
   await feed.focus();
   for (const rank of [3, 4, 5]) {
     await page.keyboard.press("ArrowDown");
     await expect(
-      page.getByRole("heading", { name: `热榜第 ${rank} 位` }),
+      feed
+        .locator("section:not([inert])")
+        .getByRole("heading", { name: `城市里的光 ${rank}` }),
     ).toBeVisible();
   }
   await expect(
@@ -573,6 +581,7 @@ test("uses distinct feeds for the four sidebar destinations", async ({
     const request = page.waitForRequest(`**/api/feed/${endpoint}`);
     await nav.getByRole("link", { name, exact: true }).click();
     await request;
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(0);
     await expect(nav.getByRole("link", { name, exact: true })).toHaveAttribute(
       "aria-current",
       "page",

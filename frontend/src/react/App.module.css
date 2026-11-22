@@ -292,7 +292,7 @@ button.notificationRow:hover {
 }
 .homeContent {
   max-width: none;
-  padding: 0 18px 14px;
+  padding: 8px 18px 14px;
 }
 .eyebrow {
   color: var(--accent);
@@ -517,36 +517,30 @@ button.notificationRow:hover {
   color: #f05d72;
   white-space: nowrap;
 }
-.feedHeading {
-  height: 48px;
+.feedSection {
+  height: max(
+    280px,
+    calc(100dvh - var(--header-height) - var(--navigation-height) - 22px)
+  );
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+}
+.feedStatus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   align-items: center;
-}
-.feedHeading h1 {
-  font-size: 18px;
-  margin: 0;
-  white-space: nowrap;
-}
-.feedHeading > span {
+  margin-bottom: 8px;
   color: var(--shell-muted);
   font-size: 13px;
 }
-.feedHeading .error {
+.feedStatus .error {
   padding: 0 8px;
   font-size: 13px;
-  max-height: 100%;
-  overflow: auto;
-}
-.feedHeading button {
-  min-height: 36px;
-  padding-block: 3px;
 }
 .feed {
-  height: max(
-    280px,
-    calc(100dvh - var(--header-height) - var(--navigation-height) - 62px)
-  );
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-anchor: none;
   overscroll-behavior-y: contain;
@@ -1018,14 +1012,11 @@ button.notificationRow:hover {
   .upload {
     grid-template-columns: 1fr;
   }
-  .feed {
+  .feedSection {
     height: max(
       280px,
-      calc(100dvh - var(--header-height) - var(--navigation-height) - 52px)
+      calc(100dvh - var(--header-height) - var(--navigation-height) - 12px)
     );
-  }
-  .feedHeading h1 {
-    font-size: 16px;
   }
   .homeStage {
     border-radius: 10px;

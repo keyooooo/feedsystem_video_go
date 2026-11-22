@@ -9,6 +9,7 @@ import {
 import { Avatar, useIdentity, useLoad, useSession, Notices } from "./ui";
 import { lazy, Suspense, type ReactNode } from "react";
 import {
+  Play,
   Flame,
   ListOrdered,
   Plus,

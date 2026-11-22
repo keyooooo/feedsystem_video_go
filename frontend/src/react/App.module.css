@@ -1146,17 +1146,18 @@ button.notificationRow:hover {
 }
 
 @media (min-width: 1200px) {
-  .content {
-    --comment-sidebar-width: clamp(400px, 32vw, 480px);
+  .feedSection:has(> .inlineComments) {
+    display: grid;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr) clamp(400px, 32vw, 480px);
+    gap: 16px;
   }
   .inlineComments {
-    width: var(--comment-sidebar-width);
-    top: 104px;
-    bottom: 24px;
-    right: 24px;
+    position: static;
+    width: auto;
+    min-width: 0;
+    min-height: 0;
   }
-  .content:has([data-inline-comments]) .feed,
-  .content:has([data-inline-comments]) .detailStage {
-    margin-right: calc(var(--comment-sidebar-width) + 24px);
+  .feed[data-comments-open="true"] .feedSlide {
+    padding-bottom: 0;
   }
 }

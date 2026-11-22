@@ -125,7 +125,10 @@
 @media (min-width: 1200px) {
   .header {
     display: grid;
-    grid-template-columns: minmax(300px, 1fr) minmax(0, 760px) minmax(300px, 1fr);
+    grid-template-columns: minmax(300px, 1fr) minmax(0, 760px) minmax(
+        300px,
+        1fr
+      );
     gap: 16px;
   }
   .search {
@@ -160,17 +163,11 @@
 .headerAction:hover {
   color: var(--shell-text);
 }
-.unreadDot,
 .notificationUnread {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #f05d72;
-}
-.unreadDot {
-  position: absolute;
-  top: 2px;
-  left: calc(50% + 5px);
 }
 .publishLink,
 .signInLink {
@@ -194,34 +191,88 @@
   width: 44px;
   height: 44px;
 }
+.notificationBadge {
+  position: absolute;
+  top: 0;
+  left: calc(50% + 4px);
+  min-width: 16px;
+  padding: 1px 4px;
+  border-radius: 10px;
+  background: #fb7185;
+  color: #151922;
+  font:
+    700 10px/14px system-ui,
+    sans-serif;
+}
+.notificationToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.notificationToolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--shell-accent);
+}
 .notificationList {
   list-style: none;
   padding: 0;
   margin: 0;
 }
-.notificationList li {
-  padding: 12px 0;
-  border-bottom: 1px solid #32343c;
+.notificationList li + li {
+  border-top: 1px solid #303642;
 }
-.notificationList li :is(button, p) {
-  margin: 0;
-  text-align: left;
-}
-.notificationList li button {
-  display: flex;
+.notificationRow {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
+  padding: 12px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  text-align: left;
+  background: transparent;
+}
+li[data-unread="true"] .notificationRow {
+  background: #202733;
+}
+button.notificationRow:hover {
+  border-color: #535660;
+}
+.notificationAvatar {
+  position: relative;
+}
+.notificationAvatar > svg {
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  box-sizing: content-box;
+  padding: 3px;
+  border-radius: 50%;
+  background: #242e3b;
+  color: var(--shell-accent);
+}
+.notificationText {
+  display: grid;
+  gap: 4px;
   overflow-wrap: anywhere;
+  font-size: 14px;
 }
-.notificationUnread {
-  flex: none;
-}
-.notificationList time {
-  display: block;
+.notificationText time,
+.notificationEmpty {
   color: var(--muted);
   font-size: 12px;
-  margin-top: 4px;
+}
+.notificationEmpty {
+  padding-block: 28px;
+  text-align: center;
 }
 .content {
   padding: 32px;
@@ -555,7 +606,9 @@
   max-width: min(100%, 520px);
   padding: 24px 28px 16px;
   background: transparent;
-  text-shadow: 0 1px 5px #000, 0 0 2px #000;
+  text-shadow:
+    0 1px 5px #000,
+    0 0 2px #000;
   pointer-events: none;
 }
 .homeMeta > a {

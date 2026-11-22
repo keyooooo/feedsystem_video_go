@@ -41,9 +41,10 @@ const Settings = lazy(() =>
   import("./AccountPages").then((m) => ({ default: m.Settings })),
 );
 const destinations = [
-  { Icon: Flame, url: "/", label: "热榜" },
+  { Icon: Play, url: "/", label: "推荐" },
+  { Icon: Flame, url: "/?feed=hot", label: "热榜" },
+  { Icon: ListOrdered, url: "/hot", label: "榜单" },
   { Icon: UserRound, url: "/?feed=following", label: "关注" },
-  { Icon: ListOrdered, url: "/hot", label: "榜单总览" },
 ] as const;
 function Protected({ children }: { children: ReactNode }) {
   const session = useSession(),
@@ -68,10 +69,13 @@ export default function App() {
   const query = new URLSearchParams(location.search);
   const home = location.pathname === "/";
   const following = home && query.get("feed") === "following";
+  const hot = home && query.get("feed") === "hot";
   const activeDestination = home
     ? following
       ? "/?feed=following"
-      : "/"
+      : hot
+        ? "/?feed=hot"
+        : "/"
     : location.pathname;
   const accountId = identity?.account_id;
   const account = useLoad(
@@ -113,6 +117,7 @@ export default function App() {
               ).trim();
               const params = new URLSearchParams();
               if (following) params.set("feed", "following");
+              if (hot) params.set("feed", "hot");
               if (keyword) params.set("q", keyword);
               navigate({ pathname: "/", search: params.toString() });
             }}
@@ -185,7 +190,7 @@ export default function App() {
                 }
               />
               <Route path="/feed" element={<Navigate to="/" replace />} />
-              <Route path="/hot" element={<FeedPage key="hot" hot />} />
+              <Route path="/hot" element={<FeedPage key="ranking" ranking />} />
               <Route path="/video/:id" element={<DetailPage />} />
               <Route
                 path="/account"
@@ -221,7 +226,7 @@ export default function App() {
                   <>
                     <p className={s.eyebrow}>404</p>
                     <h1>这个页面暂时找不到</h1>
-                    <Link to="/">返回热榜</Link>
+                    <Link to="/">返回推荐</Link>
                   </>
                 }
               />

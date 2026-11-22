@@ -44,9 +44,11 @@ import {
 } from "./ui";
 import { mediaPath } from "./directUploadConfig";
 import s from "./App.module.css";
-export type FeedMode = "following" | "hot";
+export type FeedMode = "latest" | "following" | "hot" | "ranking";
 export type Cursor = {
   next_time?: number;
+  next_likes_count_before?: number;
+  next_id_before?: number;
   as_of?: number;
   next_offset?: number;
   next_latest_popularity?: number;
@@ -54,8 +56,18 @@ export type Cursor = {
   next_latest_id_before?: number;
 };
 export function pagingInput(mode: FeedMode, cursor: Cursor, reset: boolean) {
-  if (mode === "following")
+  if (mode === "latest" || mode === "following")
     return { limit: 10, latest_time: reset ? 0 : (cursor.next_time ?? 0) };
+  if (mode === "ranking")
+    return {
+      limit: 10,
+      ...(!reset && cursor.next_id_before
+        ? {
+            likes_count_before: cursor.next_likes_count_before ?? 0,
+            id_before: cursor.next_id_before,
+          }
+        : {}),
+    };
   return {
     limit: 10,
     as_of: reset ? 0 : (cursor.as_of ?? 0),
@@ -71,12 +83,15 @@ export function pagingInput(mode: FeedMode, cursor: Cursor, reset: boolean) {
 }
 async function fetchPage(mode: FeedMode, cursor: Cursor, reset: boolean) {
   const input = pagingInput(mode, cursor, reset);
-  return "as_of" in input && input.as_of !== undefined
-    ? feed.listByPopularity(input)
-    : feed.listByFollowing({
-        limit: input.limit,
-        latest_time: input.latest_time ?? 0,
-      });
+  if (mode === "ranking") return feed.listLikesCount(input);
+  if ("as_of" in input) return feed.listByPopularity(input);
+  const chronological = {
+    limit: input.limit,
+    latest_time: input.latest_time ?? 0,
+  };
+  return mode === "following"
+    ? feed.listByFollowing(chronological)
+    : feed.listLatest(chronological);
 }
 function useFeed(mode: FeedMode) {
   const session = useSession();
@@ -611,9 +626,22 @@ function AuthorAvatar({
   );
 }
 
-export function FeedPage({ hot = false }: { hot?: boolean }) {
+export function FeedPage({ ranking = false }: { ranking?: boolean }) {
   const [query, setQuery] = useSearchParams();
-  const mode = !hot && query.get("feed") === "following" ? "following" : "hot";
+  const selected = query.get("feed");
+  const mode = ranking
+    ? "ranking"
+    : selected === "following" || selected === "hot"
+      ? selected
+      : "latest";
+  const heading =
+    mode === "following"
+      ? "关注动态"
+      : mode === "hot"
+        ? "热榜"
+        : mode === "ranking"
+          ? "点赞榜"
+          : "推荐";
   const keyword = (query.get("q") ?? "").trim().toLowerCase();
   const state = useFeed(mode);
   const items = state.items.filter((item) =>
@@ -639,7 +667,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
       ),
     ),
   );
-  const hasPlayer = !hot && items.length > 0;
+  const hasPlayer = !ranking && items.length > 0;
   const current = Math.min(active, Math.max(0, items.length - 1));
   const { more, loading, load, error } = state;
 
@@ -647,7 +675,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
     setActive(0);
     setDrawer(null);
     scroll.current?.scrollTo(0, 0);
-  }, [mode, keyword, hot]);
+  }, [mode, keyword]);
 
   useLayoutEffect(() => {
     const element = scroll.current;
@@ -719,20 +747,12 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
     ? state.items.findIndex((item) => item.id === currentItem.id) + 1
     : 0;
   return (
-    <section
-      aria-label={hot ? "榜单总览" : mode === "following" ? "关注动态" : "热榜"}
-    >
-      {hot ? (
-        <h1>此刻，大家都在看</h1>
+    <section aria-label={heading}>
+      {ranking ? (
+        <h1>{heading}</h1>
       ) : (
         <div className={s.feedHeading}>
-          <h1>
-            {mode === "following"
-              ? "关注动态"
-              : rank
-                ? `热榜第 ${rank} 位`
-                : "热榜"}
-          </h1>
+          <h1>{mode === "hot" && rank ? `热榜第 ${rank} 位` : heading}</h1>
           <ErrorBox
             error={hasPlayer ? error : null}
             retry={() => void load()}
@@ -764,7 +784,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
                 ? "没有找到匹配的视频"
                 : mode === "following"
                   ? "暂无关注动态"
-                  : "热榜暂无视频"
+                  : `${heading}暂无视频`
             }
           >
             {keyword && (
@@ -792,7 +812,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
             )}
           </Empty>
         )
-      ) : hot ? (
+      ) : ranking ? (
         <div className={s.grid}>
           {items.map((item, index) => (
             <VideoCard key={item.id} item={item} rank={index + 1} />
@@ -895,7 +915,7 @@ export function FeedPage({ hot = false }: { hot?: boolean }) {
           <div style={{ height: Math.max(0, items.length - end) * height }} />
         </div>
       )}
-      {hot && more && (
+      {ranking && more && (
         <button
           style={{ marginTop: 24 }}
           disabled={loading}

@@ -196,3 +196,12 @@ export const postForm = <T>(path: string, body: FormData, options?: Options) =>
 
 export const getJson = <T>(path: string, options?: Options) =>
   request<T>(path, undefined, false, options, "GET");
+
+// Fetch keeps the access token in the Authorization header in both session modes.
+export function openNotificationStream(token: string, signal: AbortSignal) {
+  return fetch(`${base}/notification/stream`, {
+    headers: { Accept: "text/event-stream", Authorization: `Bearer ${token}` },
+    credentials: "same-origin",
+    signal,
+  });
+}

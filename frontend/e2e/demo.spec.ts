@@ -18,9 +18,7 @@ test("default preview plays local media only after interaction", async ({
   });
 
   await page.goto(origin);
-  await expect(
-    page.getByRole("heading", { name: "热榜第 1 位" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "推荐" })).toBeVisible();
   const feed = page.getByRole("region", { name: "视频流" });
   const player = feed.locator("section:not([inert]) [data-player]");
   const video = player.locator("video");
@@ -37,9 +35,9 @@ test("default preview plays local media only after interaction", async ({
   await feed.focus();
   await page.keyboard.press("ArrowDown");
   await expect(
-    page.getByRole("heading", { name: "热榜第 2 位" }),
+    player.getByRole("heading", { name: "城市里的光 · 方形" }),
   ).toBeVisible();
-  expect(await video.getAttribute("src")).toBeNull();
+  await expect(video).not.toHaveAttribute("src");
   expect(new Set(media)).toEqual(new Set(["/clip.mp4"]));
   expect(external).toEqual([]);
   expect(

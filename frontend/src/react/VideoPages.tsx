@@ -1018,31 +1018,29 @@ export function DetailPage() {
       {result.loading ? (
         <div className={s.skeleton} />
       ) : item ? (
-        <>
-          <div className={`${s.feedSection} ${s.detailStage}`}>
-            {status.error != null && (
-              <div className={s.feedStatus}>
-                <ErrorBox error={status.error} retry={status.reload} />
-              </div>
-            )}
-            <VideoStage
-              key={item.id}
-              item={item}
-              active
-              muted={muted}
-              onMute={() => setMuted((value) => !value)}
-              authorCache={authorCache}
-              detail
-              actions={actions}
-              onComment={() => setDrawer(true)}
-              likeUnavailable={!!session.token && !status.data}
-            />
-          </div>
+        <div className={s.feedSection}>
+          {status.error != null && (
+            <div className={s.feedStatus}>
+              <ErrorBox error={status.error} retry={status.reload} />
+            </div>
+          )}
+          <VideoStage
+            key={item.id}
+            item={item}
+            active
+            muted={muted}
+            onMute={() => setMuted((value) => !value)}
+            authorCache={authorCache}
+            detail
+            actions={actions}
+            onComment={() => setDrawer(true)}
+            likeUnavailable={!!session.token && !status.data}
+          />
           <CommentPanel
             item={drawer ? item : null}
             onClose={() => setDrawer(false)}
           />
-        </>
+        </div>
       ) : (
         <Empty title="视频暂不可用" />
       )}

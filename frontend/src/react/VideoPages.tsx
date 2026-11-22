@@ -742,25 +742,18 @@ export function FeedPage({ ranking = false }: { ranking?: boolean }) {
 
   const start = Math.max(0, current - 1);
   const end = Math.min(items.length, current + 2);
-  const currentItem = items[current];
-  const rank = currentItem
-    ? state.items.findIndex((item) => item.id === currentItem.id) + 1
-    : 0;
+  const searching = keyword && more && hasPlayer;
+  const loadingMore = loading && state.items.length > 0;
   return (
-    <section aria-label={heading}>
-      {ranking ? (
-        <h1>{heading}</h1>
-      ) : (
-        <div className={s.feedHeading}>
-          <h1>{mode === "hot" && rank ? `热榜第 ${rank} 位` : heading}</h1>
-          <ErrorBox
-            error={hasPlayer ? error : null}
-            retry={() => void load()}
-          />
-          {loading && state.items.length > 0 && (
-            <span role="status">正在加载更多…</span>
-          )}
-          {keyword && more && hasPlayer && (
+    <section
+      aria-label={heading}
+      className={hasPlayer ? s.feedSection : undefined}
+    >
+      {hasPlayer && (error || loadingMore || searching) && (
+        <div className={s.feedStatus}>
+          <ErrorBox error={error} retry={() => void load()} />
+          {loadingMore && <span role="status">正在加载更多…</span>}
+          {searching && (
             <button
               type="button"
               disabled={loading}

@@ -18,7 +18,8 @@ test("default preview plays local media only after interaction", async ({
   });
 
   await page.goto(origin);
-  await expect(page.getByRole("heading", { name: "推荐" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "推荐" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "推荐" })).toHaveCount(0);
   const feed = page.getByRole("region", { name: "视频流" });
   const player = feed.locator("section:not([inert]) [data-player]");
   const video = player.locator("video");

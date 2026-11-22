@@ -229,6 +229,32 @@ test("video detail shares the home controls and carries likes into profile cards
   await expect(page.getByRole("img", { name: /^未赞，/ })).toHaveCount(1);
   await expect(page.getByRole("img", { name: /^已赞，/ })).toHaveCount(1);
 });
+test("desktop comments align with both video layouts", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.route("**/api/video/getDetail", (route) =>
+    route.fulfill({
+      json: {
+        ...items[0],
+        author_id: 2,
+        username: "摄影日记",
+        create_time: "2026-10-01T12:00:00Z",
+      },
+    }),
+  );
+  for (const path of ["/", "/video/1"]) {
+    await page.goto(path);
+    if (path === "/")
+      await page.getByRole("button", { name: "打开评论" }).click();
+    const comments = page.getByRole("complementary", { name: "评论" });
+    await expect(comments).toBeVisible();
+    const player = page.locator("[data-player]:not(section[inert] *)").first();
+    const videoBox = (await player.boundingBox())!;
+    const commentBox = (await comments.boundingBox())!;
+    expect(Math.abs(videoBox.y - commentBox.y)).toBeLessThan(1);
+    expect(Math.abs(videoBox.height - commentBox.height)).toBeLessThan(1);
+    expect(commentBox.x).toBeGreaterThan(videoBox.x + videoBox.width);
+  }
+});
 test("protected publishing retains return URL and password visibility works", async ({
   page,
 }) => {

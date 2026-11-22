@@ -33,11 +33,22 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 44px;
+  width: fit-content;
   padding: 0 10px;
+  border-radius: 10px;
 }
-.brand svg {
-  color: var(--shell-accent);
+.brandIcon {
+  width: 40px;
+  height: 40px;
   flex: none;
+}
+.mobileBrand {
+  display: none;
+}
+.authBrand {
+  padding: 0;
+  margin-bottom: 16px;
 }
 .nav {
   display: grid;
@@ -893,7 +904,8 @@ button.notificationRow:hover {
     width: 80px;
     padding: 24px 12px;
   }
-  .sidebar span {
+  .nav span,
+  .sidebar .brandName {
     display: none;
   }
   .nav a {
@@ -903,8 +915,10 @@ button.notificationRow:hover {
   .main {
     margin-left: 80px;
   }
-  .brand {
+  .sidebar .brand {
     justify-content: center;
+    width: 100%;
+    padding: 0;
   }
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -928,6 +942,19 @@ button.notificationRow:hover {
   }
   .sidebar > .brand {
     display: none;
+  }
+  .mobileBrand {
+    display: grid;
+    place-items: center;
+    flex: 0 0 44px;
+    padding: 0;
+  }
+  .mobileBrand .brandName {
+    display: none;
+  }
+  .mobileBrand .brandIcon {
+    width: 32px;
+    height: 32px;
   }
   .nav {
     display: flex;

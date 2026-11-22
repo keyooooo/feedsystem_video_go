@@ -109,6 +109,22 @@ for (const viewport of [
   }, info) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
+    await expect(page).toHaveTitle("GikGok");
+    const brand = page.getByRole("link", { name: "GikGok", exact: true });
+    await expect(brand).toHaveAttribute("href", "/");
+    await expect
+      .poll(() =>
+        brand
+          .locator("img")
+          .evaluate((image: HTMLImageElement) => image.naturalWidth),
+      )
+      .toBeGreaterThan(0);
+    const favicon = await page
+      .locator('link[rel="icon"]')
+      .evaluate((link: HTMLLinkElement) => link.href);
+    const iconResponse = await page.request.get(favicon);
+    expect(iconResponse.ok()).toBe(true);
+    expect(iconResponse.headers()["content-type"]).toContain("image/svg+xml");
     await expect(
       page.getByRole("navigation", { name: "主导航" }),
     ).toBeVisible();
@@ -169,12 +185,20 @@ test("protected publishing retains return URL and password visibility works", as
 }) => {
   await page.goto("/video");
   await expect(page).toHaveURL(/account\?redirect=%2Fvideo/);
+  await expect(
+    page
+      .getByRole("main")
+      .getByText("GikGok", { exact: true })
+      .filter({ visible: true }),
+  ).toBeVisible();
   await page.getByLabel("密码", { exact: true }).fill("example");
   await page.getByRole("button", { name: "显示密码" }).click();
   await expect(page.getByLabel("密码", { exact: true })).toHaveAttribute(
     "type",
     "text",
   );
+  await page.getByRole("link", { name: "GikGok", exact: true }).click();
+  await expect(page).toHaveURL("/");
 });
 test("hot ranking and public profile use actual API shapes", async ({
   page,

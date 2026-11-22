@@ -1,6 +1,6 @@
 import type { Plugin } from "vite";
 
-const author = { id: 1, username: "ShortVideo", avatar_url: "/poster.png" };
+const author = { id: 1, username: "GikGok", avatar_url: "/poster.png" };
 const videos = [
   ["clip.mp4", "城市里的光 · 竖屏"],
   ["square.mp4", "城市里的光 · 方形"],

@@ -9,7 +9,6 @@ import {
 import { Avatar, useIdentity, useLoad, useSession, Notices } from "./ui";
 import { lazy, Suspense, type ReactNode } from "react";
 import {
-  Play,
   Flame,
   ListOrdered,
   Plus,
@@ -18,6 +17,7 @@ import {
   Search,
 } from "lucide-react";
 import { findById } from "../api/account";
+import { Brand, brandName } from "./Brand";
 import { NotificationButton } from "./NotificationButton";
 import s from "./App.module.css";
 
@@ -88,9 +88,8 @@ export default function App() {
   return (
     <div className={s.shell}>
       <aside className={s.sidebar}>
-        <Link className={s.brand} to="/">
-          <Play fill="currentColor" aria-hidden="true" />
-          <span>ShortVideo</span>
+        <Link className={s.brand} to="/" aria-label={brandName}>
+          <Brand />
         </Link>
         <nav className={s.nav} aria-label="主导航">
           {destinations.map(({ Icon, url, label }) => (
@@ -108,6 +107,13 @@ export default function App() {
       </aside>
       <main className={s.main}>
         <header className={s.header}>
+          <Link
+            className={`${s.brand} ${s.mobileBrand}`}
+            to="/"
+            aria-label={brandName}
+          >
+            <Brand />
+          </Link>
           <form
             className={s.search}
             onSubmit={(e) => {
@@ -128,7 +134,7 @@ export default function App() {
               type="search"
               defaultValue={home ? (query.get("q") ?? "") : ""}
               aria-label="搜索已加载的视频"
-              placeholder="搜索已加载的视频"
+              placeholder="搜索"
             />
             <button aria-label="搜索">
               <Search size={18} aria-hidden="true" /> <span>搜索</span>

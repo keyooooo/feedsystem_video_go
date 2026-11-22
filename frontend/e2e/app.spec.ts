@@ -180,6 +180,55 @@ for (const viewport of [
     });
     await expect(page.locator("video")).toHaveCount(3);
   });
+test("video detail shares the home controls and carries likes into profile cards", async ({
+  page,
+}) => {
+  await signedIn(page);
+  const fixture = {
+    ...items[0],
+    author_id: 2,
+    username: "摄影日记",
+    create_time: "2026-10-01T12:00:00Z",
+  };
+  await page.route("**/api/video/getDetail", (route) =>
+    route.fulfill({ json: fixture }),
+  );
+  await page.route("**/api/like/isLiked", (route) =>
+    route.fulfill({ json: { is_liked: false } }),
+  );
+  await page.route("**/api/video/listByAuthorID", (route) =>
+    route.fulfill({
+      json: [
+        fixture,
+        { ...fixture, id: 2, title: "较早点赞的作品", is_liked: true },
+      ],
+    }),
+  );
+  await page.goto("/");
+  const controls = page.getByRole("group", { name: "视频互动" });
+  await controls.getByRole("button", { name: "点赞", exact: true }).click();
+  await expect(
+    controls.getByRole("button", { name: "取消点赞" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("link", { name: fixture.title, exact: true }).click();
+  await expect(page).toHaveURL("/video/1");
+  await expect(
+    page.getByRole("heading", { name: fixture.title }),
+  ).toBeVisible();
+  await expect(
+    controls.getByRole("button", { name: "取消点赞" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("link", { name: "查看 摄影日记 的主页" }).click();
+  await expect(page.getByRole("img", { name: /^已赞，/ })).toHaveCount(2);
+  await page.getByRole("link", { name: fixture.title, exact: true }).click();
+  await controls.getByRole("button", { name: "取消点赞" }).click();
+  await expect(
+    controls.getByRole("button", { name: "点赞", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("link", { name: "查看 摄影日记 的主页" }).click();
+  await expect(page.getByRole("img", { name: /^未赞，/ })).toHaveCount(1);
+  await expect(page.getByRole("img", { name: /^已赞，/ })).toHaveCount(1);
+});
 test("protected publishing retains return URL and password visibility works", async ({
   page,
 }) => {

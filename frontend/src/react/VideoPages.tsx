@@ -1,4 +1,3 @@
-import FollowButton from "./FollowButton";
 import {
   useCallback,
   useEffect,
@@ -43,6 +42,11 @@ import {
   useMedia,
 } from "./ui";
 import { mediaPath } from "./directUploadConfig";
+import {
+  applyVideoLike,
+  confirmVideoLike,
+  useVideoLikes,
+} from "./video-like-state";
 import s from "./App.module.css";
 export type FeedMode = "latest" | "following" | "hot" | "ranking";
 export type Cursor = {
@@ -170,10 +174,42 @@ export function Cover({ url, title }: { url: string; title: string }) {
 export function VideoCard({
   item,
   rank,
+  profile = false,
+  showAuthor = false,
 }: {
   item: FeedVideoItem;
   rank?: number;
+  profile?: boolean;
+  showAuthor?: boolean;
 }) {
+  const session = useSession();
+  const confirmation = useVideoLikes((state) => state[item.id]);
+  item = applyVideoLike(item, confirmation, session.revision);
+  if (profile) {
+    return (
+      <article className={s.workCard}>
+        <Link to={`/video/${item.id}`} aria-label={item.title}>
+          <div className={s.workCover}>
+            <Cover url={item.cover_url} title={item.title} />
+            <span
+              className={s.workLikes}
+              role="img"
+              aria-label={`${item.is_liked ? "已赞" : "未赞"}，${item.likes_count} 个赞`}
+            >
+              <Heart
+                className={item.is_liked ? s.liked : undefined}
+                fill={item.is_liked ? "currentColor" : "none"}
+                aria-hidden="true"
+              />
+              {item.likes_count}
+            </span>
+          </div>
+          <h3>{item.title}</h3>
+          {showAuthor && <small>@{item.author.username}</small>}
+        </Link>
+      </article>
+    );
+  }
   return (
     <article className={s.card}>
       <Link to={`/video/${item.id}`}>
@@ -199,7 +235,7 @@ export function fromVideo(item: Video): FeedVideoItem {
     ...item,
     author: { id: item.author_id, username: item.username },
     create_time: new Date(item.create_time).getTime() / 1000,
-    is_liked: false,
+    is_liked: item.is_liked ?? false,
   };
 }
 function playbackTime(seconds: number) {
@@ -536,7 +572,7 @@ function Player({
     </>
   );
 }
-export function useVideoActions(update: (id: number, liked: boolean) => void) {
+function useVideoActions(onConfirmed: (item: FeedVideoItem) => void) {
   const session = useSession(),
     navigate = useNavigate(),
     show = useNotice((v) => v.show);
@@ -557,7 +593,13 @@ export function useVideoActions(update: (id: number, liked: boolean) => void) {
     try {
       if (item.is_liked) await like.unlike(item.id);
       else await like.like(item.id);
-      update(item.id, !item.is_liked);
+      if (confirmVideoLike(item, session.revision)) {
+        onConfirmed({
+          ...item,
+          is_liked: !item.is_liked,
+          likes_count: Math.max(0, item.likes_count + (item.is_liked ? -1 : 1)),
+        });
+      }
     } catch (e) {
       show(e instanceof Error ? e.message : "操作失败");
     } finally {
@@ -626,6 +668,84 @@ function AuthorAvatar({
   );
 }
 
+function VideoStage({
+  item,
+  active,
+  muted,
+  onMute,
+  authorCache,
+  actions,
+  onComment,
+  detail = false,
+  likeUnavailable = false,
+}: {
+  item: FeedVideoItem;
+  active: boolean;
+  muted: boolean;
+  onMute: () => void;
+  authorCache: AuthorCache;
+  actions: ReturnType<typeof useVideoActions>;
+  onComment: () => void;
+  detail?: boolean;
+  likeUnavailable?: boolean;
+}) {
+  const session = useSession();
+  const confirmation = useVideoLikes((state) => state[item.id]);
+  const display = applyVideoLike(item, confirmation, session.revision);
+  return (
+    <Player
+      item={item}
+      active={active}
+      muted={muted}
+      presentation={{
+        toggleMute: onMute,
+        metadata: (
+          <div className={s.homeMeta}>
+            <Link to={`/u/${item.author.id}`}>@{item.author.username}</Link>
+            {detail ? (
+              <h1>{item.title}</h1>
+            ) : (
+              <h2>
+                <Link to={`/video/${item.id}`}>{item.title}</Link>
+              </h2>
+            )}
+            {item.description && <p>{item.description}</p>}
+          </div>
+        ),
+        actions: (
+          <div className={s.homeActions} role="group" aria-label="视频互动">
+            {active && (
+              <AuthorAvatar author={item.author} cache={authorCache} />
+            )}
+            <button
+              type="button"
+              aria-label={display.is_liked ? "取消点赞" : "点赞"}
+              aria-pressed={display.is_liked}
+              disabled={likeUnavailable || actions.busy[item.id]}
+              onClick={() => void actions.toggle(display)}
+            >
+              <Heart fill={display.is_liked ? "currentColor" : "none"} />
+              <span>{display.likes_count}</span>
+            </button>
+            <button type="button" aria-label="打开评论" onClick={onComment}>
+              <MessageCircle />
+              <span>评论</span>
+            </button>
+            <button
+              type="button"
+              aria-label="分享视频"
+              onClick={() => void actions.share(item)}
+            >
+              <Share2 />
+              <span>分享</span>
+            </button>
+          </div>
+        ),
+      }}
+    />
+  );
+}
+
 export function FeedPage({ ranking = false }: { ranking?: boolean }) {
   const [query, setQuery] = useSearchParams();
   const selected = query.get("feed");
@@ -654,17 +774,9 @@ export function FeedPage({ ranking = false }: { ranking?: boolean }) {
   const [authorCache] = useState<AuthorCache>(() => new Map());
   const scroll = useRef<HTMLDivElement>(null);
   const previousHeight = useRef(0);
-  const actions = useVideoActions((id, is_liked) =>
-    state.setItems((old) =>
-      old.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              is_liked,
-              likes_count: Math.max(0, item.likes_count + (is_liked ? 1 : -1)),
-            }
-          : item,
-      ),
+  const actions = useVideoActions((updated) =>
+    state.setItems((items) =>
+      items.map((item) => (item.id === updated.id ? updated : item)),
     ),
   );
   const hasPlayer = !ranking && items.length > 0;
@@ -841,66 +953,14 @@ export function FeedPage({ ranking = false }: { ranking?: boolean }) {
                 inert={!visible}
                 aria-hidden={!visible}
               >
-                <Player
+                <VideoStage
                   item={item}
                   active={visible}
                   muted={muted}
-                  presentation={{
-                    toggleMute: () => setMuted((value) => !value),
-                    metadata: (
-                      <div className={s.homeMeta}>
-                        <Link to={`/u/${item.author.id}`}>
-                          @{item.author.username}
-                        </Link>
-                        <h2>
-                          <Link to={`/video/${item.id}`}>{item.title}</Link>
-                        </h2>
-                        {item.description && <p>{item.description}</p>}
-                      </div>
-                    ),
-                    actions: (
-                      <div
-                        className={s.homeActions}
-                        role="group"
-                        aria-label="视频互动"
-                      >
-                        {visible && (
-                          <AuthorAvatar
-                            author={item.author}
-                            cache={authorCache}
-                          />
-                        )}
-                        <button
-                          type="button"
-                          aria-label={item.is_liked ? "取消点赞" : "点赞"}
-                          aria-pressed={item.is_liked}
-                          disabled={actions.busy[item.id]}
-                          onClick={() => void actions.toggle(item)}
-                        >
-                          <Heart
-                            fill={item.is_liked ? "currentColor" : "none"}
-                          />
-                          <span>{item.likes_count}</span>
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="打开评论"
-                          onClick={() => setDrawer(item)}
-                        >
-                          <MessageCircle />
-                          <span>评论</span>
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="分享视频"
-                          onClick={() => void actions.share(item)}
-                        >
-                          <Share2 />
-                          <span>分享</span>
-                        </button>
-                      </div>
-                    ),
-                  }}
+                  onMute={() => setMuted((value) => !value)}
+                  authorCache={authorCache}
+                  actions={actions}
+                  onComment={() => setDrawer(item)}
                 />
               </section>
             );
@@ -925,32 +985,32 @@ export function FeedPage({ ranking = false }: { ranking?: boolean }) {
 export function DetailPage() {
   const wide = useMedia("(min-width: 1200px)");
   const { id } = useParams();
-  const result = useLoad(String(id), async () => {
-    const item = fromVideo(await video.getDetail(Number(id)));
-    try {
-      item.is_liked = (await like.isLiked(item.id)).is_liked;
-    } catch {
-      /* guests can view */
-    }
-    return item;
-  });
-  const [item, setItem] = useState<FeedVideoItem | null>(null),
-    [drawer, setDrawer] = useState(false);
-  useEffect(() => setItem(result.data), [result.data]);
-  useEffect(() => {
-    setDrawer(wide);
-  }, [wide]);
-  const actions = useVideoActions((_, is_liked) =>
-    setItem((v) =>
-      v
-        ? {
-            ...v,
-            is_liked,
-            likes_count: Math.max(0, v.likes_count + (is_liked ? 1 : -1)),
-          }
-        : v,
-    ),
+  const session = useSession();
+  const result = useLoad(String(id), async () =>
+    fromVideo(await video.getDetail(Number(id))),
   );
+  const status = useLoad(`${id}:${session.revision}:${!!session.token}`, () =>
+    session.token
+      ? like.isLiked(Number(id))
+      : Promise.resolve({ is_liked: false }),
+  );
+  const [drawer, setDrawer] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const [authorCache] = useState<AuthorCache>(() => new Map());
+  useEffect(() => setDrawer(wide), [id, wide]);
+  const [confirmed, setConfirmed] = useState<{
+    revision: number;
+    item: FeedVideoItem;
+  } | null>(null);
+  const actions = useVideoActions((item) =>
+    setConfirmed({ revision: session.revision, item }),
+  );
+  const item =
+    result.data &&
+    (confirmed?.revision === session.revision &&
+    confirmed.item.id === result.data.id
+      ? confirmed.item
+      : { ...result.data, is_liked: status.data?.is_liked ?? false });
   return (
     <>
       {actions.sharePanel}
@@ -959,36 +1019,24 @@ export function DetailPage() {
         <div className={s.skeleton} />
       ) : item ? (
         <>
-          <div
-            className={`${s.slide} ${s.detailStage}`}
-            style={{ height: "70dvh" }}
-          >
-            <div className={s.stage}>
-              <Player item={item} active muted />
-              <div className={s.meta}>
-                <Link to={`/u/${item.author.id}`}>@{item.author.username}</Link>
-                <h1>{item.title}</h1>
+          <div className={`${s.feedSection} ${s.detailStage}`}>
+            {status.error != null && (
+              <div className={s.feedStatus}>
+                <ErrorBox error={status.error} retry={status.reload} />
               </div>
-            </div>
-            <div className={s.actions}>
-              <FollowButton id={item.author.id} />
-              <button
-                aria-label="点赞"
-                onClick={() => actions.toggle(item)}
-                disabled={actions.busy[item.id]}
-              >
-                <Heart />
-                {item.likes_count}
-              </button>
-              <button onClick={() => setDrawer(true)}>
-                <MessageCircle />
-                评论
-              </button>
-              <button onClick={() => actions.share(item)}>
-                <Share2 />
-                分享
-              </button>
-            </div>
+            )}
+            <VideoStage
+              key={item.id}
+              item={item}
+              active
+              muted={muted}
+              onMute={() => setMuted((value) => !value)}
+              authorCache={authorCache}
+              detail
+              actions={actions}
+              onComment={() => setDrawer(true)}
+              likeUnavailable={!!session.token && !status.data}
+            />
           </div>
           <CommentPanel
             item={drawer ? item : null}

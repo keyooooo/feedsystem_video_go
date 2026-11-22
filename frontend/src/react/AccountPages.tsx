@@ -6,6 +6,7 @@ import { postJson } from "../api/client";
 import { cancelUpload, directUploadEnabled } from "./directUploadConfig";
 import type { createDirectUploadRun } from "./directUpload";
 import type { UploadProgress } from "./upload";
+import { Brand } from "./Brand";
 import {
   authSession,
   markExplicitLogout,
@@ -87,7 +88,9 @@ export function AuthPage({
   }
   return (
     <section className={`${s.panel} ${s.auth}`}>
-      <p className={s.eyebrow}>SHORTVIDEO</p>
+      <div className={`${s.brand} ${s.authBrand}`}>
+        <Brand />
+      </div>
       <h1>{password ? "修改密码" : register ? "创建你的账号" : "欢迎回来"}</h1>
       <p className={s.muted}>
         {register

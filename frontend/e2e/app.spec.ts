@@ -815,8 +815,27 @@ test("likes preserve state on failure and comments can retry and delete", async 
   await expect(
     page.locator("article").filter({ hasText: "我的评论" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "删除", exact: true }).click();
-  await page.getByRole("button", { name: "确认删除" }).click();
+  const deleteButton = panel.getByRole("button", { name: "删除", exact: true });
+  await deleteButton.click();
+  const confirm = panel.getByRole("dialog", { name: "删除这条评论？" });
+  await expect(
+    confirm.getByRole("button", { name: "取消", exact: true }),
+  ).toBeFocused();
+  const outer = (await panel.boundingBox())!;
+  const inner = (await confirm.boundingBox())!;
+  expect(inner.width).toBeLessThan(outer.width);
+  expect(
+    Math.abs(inner.x + inner.width / 2 - outer.x - outer.width / 2),
+  ).toBeLessThan(1);
+  expect(
+    Math.abs(inner.y + inner.height / 2 - outer.y - outer.height / 2),
+  ).toBeLessThan(1);
+  await page.keyboard.press("Escape");
+  await expect(confirm).toHaveCount(0);
+  await expect(deleteButton).toBeFocused();
+  await deleteButton.click();
+  await confirm.getByRole("button", { name: "确认删除" }).click();
+  await expect(panel.getByLabel("你的评论")).toBeFocused();
   await expect(page.getByRole("heading", { name: "还没有评论" })).toBeVisible();
 });
 

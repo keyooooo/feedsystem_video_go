@@ -1,3 +1,4 @@
+import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronDown, ChevronUp, Heart, Reply } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -110,6 +111,7 @@ function OpenComments({
   const [replies, setReplies] = useState<Record<number, Replies>>({});
   const [target, setTarget] = useState<ReplyTarget | null>(null);
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
+  const removeTrigger = useRef<HTMLButtonElement>(null);
   const [content, setContent] = useState("");
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
@@ -408,7 +410,8 @@ function OpenComments({
                 type="button"
                 className={s.commentAction}
                 disabled={sending}
-                onClick={() => {
+                onClick={(event) => {
+                  removeTrigger.current = event.currentTarget;
                   setFailure(null);
                   setDeleting({ id: row.id, rootId: root.id });
                 }}
@@ -562,21 +565,49 @@ function OpenComments({
             {sending ? "发送中…" : target ? "发送回复" : "发送评论"}
           </button>
         </div>
-      </Modal>
-      <Modal
-        title="删除这条评论？"
-        open={deleting !== null}
-        onClose={() => {
-          if (!sending) {
-            setDeleting(null);
-            setFailure(null);
-          }
-        }}
-      >
-        <ErrorBox error={failure} />
-        <button disabled={sending} onClick={() => void remove()}>
-          确认删除
-        </button>
+        <Dialog.Root
+          open={deleting !== null}
+          onOpenChange={(open) => {
+            if (!open && !sending) {
+              setDeleting(null);
+              setFailure(null);
+            }
+          }}
+        >
+          <Dialog.Overlay className={s.commentConfirmOverlay} />
+          <Dialog.Content
+            className={s.commentConfirm}
+            onInteractOutside={(event) => event.preventDefault()}
+            onEscapeKeyDown={(event) => {
+              if (sending) event.preventDefault();
+            }}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              const trigger = removeTrigger.current;
+              if (trigger?.isConnected) trigger.focus();
+              else input.current?.focus();
+            }}
+          >
+            <Dialog.Title>删除这条评论？</Dialog.Title>
+            <Dialog.Description>删除后无法恢复。</Dialog.Description>
+            <ErrorBox error={failure} />
+            <div className={s.commentConfirmActions}>
+              <Dialog.Close asChild>
+                <button type="button" disabled={sending}>
+                  取消
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                className={s.commentConfirmDelete}
+                disabled={sending}
+                onClick={() => void remove()}
+              >
+                {sending ? "删除中…" : "确认删除"}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Root>
       </Modal>
     </>
   );

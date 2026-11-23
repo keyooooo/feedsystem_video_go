@@ -78,12 +78,13 @@ func (h *CommentHandler) DeleteComment(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "comment_id is required"})
 		return
 	}
-	if err := h.service.Delete(c.Request.Context(), req.CommentID, accountID); err != nil {
+	removed, err := h.service.Delete(c.Request.Context(), req.CommentID, accountID)
+	if err != nil {
 		c.JSON(apierror.ClassifyHTTPStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "comment deleted successfully"})
+	c.JSON(200, gin.H{"message": "comment deleted successfully", "deleted_count": removed})
 }
 
 func (h *CommentHandler) GetAllComments(c *gin.Context) {

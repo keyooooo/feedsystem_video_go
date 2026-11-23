@@ -24,7 +24,7 @@ export function publish(videoId: number, content: string, replyTo?: number) {
 }
 
 export function remove(commentId: number) {
-  return postJson<MessageResponse>('/comment/delete', { comment_id: commentId }, { authRequired: true })
+  return postJson<MessageResponse & { deleted_count?: number }>('/comment/delete', { comment_id: commentId }, { authRequired: true })
 }
 
 export function setLike(commentId: number, liked: boolean) {

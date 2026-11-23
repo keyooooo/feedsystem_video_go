@@ -38,7 +38,9 @@ func (r *CommentRepository) setLike(ctx context.Context, commentID, accountID ui
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var comment Comment
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Select("id").Where("removed_at IS NULL").First(&comment, commentID).Error; err != nil {
+			Select("id").Where("removed_at IS NULL").
+			Where("root_comment_id IS NULL OR EXISTS (SELECT 1 FROM comments AS root WHERE root.id = comments.root_comment_id AND root.removed_at IS NULL)").
+			First(&comment, commentID).Error; err != nil {
 			return err
 		}
 		relation := CommentLike{CommentID: commentID, AccountID: accountID}

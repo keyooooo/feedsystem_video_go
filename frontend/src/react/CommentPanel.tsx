@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { ChevronDown, ChevronUp, Heart, Reply } from "lucide-react";
+import { ChevronDown, ChevronUp, Heart, CornerDownRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import * as comments from "../api/comment";
@@ -103,7 +103,7 @@ function OpenComments({
   const threadRequest = useRef(0);
   const lastThreadLoad = useRef({ after: 0, preserve: false });
   const deletedReplies = useRef(new Set<number>());
-  const deletedRoots = useRef(new Map<number, string>());
+  const deletedRoots = useRef(new Set<number>());
   const [threads, setThreads] = useState<CommentThread[]>([]);
   const [cursor, setCursor] = useState<number>();
   const [loading, setLoading] = useState(true);
@@ -131,13 +131,10 @@ function OpenComments({
             after || preserve ? old : [],
             page.comments,
             true,
-          ).flatMap((thread) => {
-            const removedAt = deletedRoots.current.get(thread.id);
-            if (!removedAt) return [thread];
-            return thread.reply_count
-              ? [{ ...thread, removed_at: removedAt, content: "" }]
-              : [];
-          }),
+          ).filter(
+            (thread) =>
+              !thread.removed_at && !deletedRoots.current.has(thread.id),
+          ),
         );
         setCursor((old) =>
           preserve && old !== undefined ? old : page.next_cursor,
@@ -176,6 +173,7 @@ function OpenComments({
     }));
     try {
       const page = await comments.listReplies(videoId, rootId, after);
+      if (deletedRoots.current.has(rootId)) return;
       updateReplies(rootId, (old) => ({
         ...old,
         items: mergeComments(old.items, page.comments).filter(
@@ -185,7 +183,8 @@ function OpenComments({
         loading: false,
       }));
     } catch (error) {
-      updateReplies(rootId, (old) => ({ ...old, loading: false, error }));
+      if (!deletedRoots.current.has(rootId))
+        updateReplies(rootId, (old) => ({ ...old, loading: false, error }));
     } finally {
       replyRequests.current.delete(rootId);
     }
@@ -249,20 +248,24 @@ function OpenComments({
     setSending(true);
     setFailure(null);
     try {
-      await comments.remove(deleting.id);
-      setTotal((old) => (old === undefined ? old : Math.max(0, old - 1)));
-      if (deleting.id === deleting.rootId) {
-        const removedAt = new Date().toISOString();
-        deletedRoots.current.set(deleting.id, removedAt);
-        setThreads((old) =>
-          old.flatMap((row) =>
-            row.id !== deleting.id
-              ? [row]
-              : row.reply_count
-                ? [{ ...row, removed_at: removedAt, content: "" }]
-                : [],
-          ),
-        );
+      const response = await comments.remove(deleting.id);
+      const rootRemoved = deleting.id === deleting.rootId;
+      const fallbackCount = rootRemoved
+        ? 1 + (threads.find((row) => row.id === deleting.id)?.reply_count ?? 0)
+        : 1;
+      setTotal((old) =>
+        old === undefined
+          ? old
+          : Math.max(0, old - (response.deleted_count ?? fallbackCount)),
+      );
+      if (rootRemoved) {
+        deletedRoots.current.add(deleting.id);
+        setThreads((old) => old.filter((row) => row.id !== deleting.id));
+        setReplies((old) => {
+          const next = { ...old };
+          delete next[deleting.id];
+          return next;
+        });
       } else {
         deletedReplies.current.add(deleting.id);
         updateReplies(deleting.rootId, (old) => ({
@@ -270,13 +273,11 @@ function OpenComments({
           items: old.items.filter((row) => row.id !== deleting.id),
         }));
         setThreads((old) =>
-          old.flatMap((row) => {
-            if (row.id !== deleting.rootId) return [row];
-            const replyCount = Math.max(0, row.reply_count - 1);
-            return row.removed_at && !replyCount
-              ? []
-              : [{ ...row, reply_count: replyCount }];
-          }),
+          old.map((row) =>
+            row.id === deleting.rootId
+              ? { ...row, reply_count: Math.max(0, row.reply_count - 1) }
+              : row,
+          ),
         );
       }
       if (
@@ -285,6 +286,8 @@ function OpenComments({
       )
         setTarget(null);
       setDeleting(null);
+      if (loading || response.deleted_count === undefined)
+        void loadThreads(0, true);
     } catch (error) {
       setFailure(error);
     } finally {
@@ -348,13 +351,12 @@ function OpenComments({
     const deletedTarget =
       isReply &&
       (row.reply_target_deleted ||
-        deletedReplies.current.has(row.reply_to_comment_id) ||
-        deletedRoots.current.has(row.reply_to_comment_id));
+        deletedReplies.current.has(row.reply_to_comment_id));
     const replyName =
       isReply &&
-      (deletedTarget
-        ? "已删除的评论"
-        : row.reply_to_username && `@${row.reply_to_username}`);
+      (row.reply_to_username
+        ? `@${row.reply_to_username}${deletedTarget ? "（评论已删除）" : ""}`
+        : deletedTarget && "评论已删除");
     return (
       <div className={s.commentRow}>
         <Link
@@ -371,25 +373,23 @@ function OpenComments({
             </Link>
             {replyName && (
               <span className={s.commentTarget}>
-                <Reply size={14} aria-hidden="true" /> {replyName}
+                <CornerDownRight size={14} aria-hidden="true" /> {replyName}
               </span>
             )}
           </div>
           <p>{row.content}</p>
           <div className={s.commentActions}>
             <time dateTime={row.created_at}>{commentTime(row.created_at)}</time>
-            {!root.removed_at && (
-              <button
-                type="button"
-                className={s.commentAction}
-                aria-label="回复"
-                title="回复"
-                disabled={sending}
-                onClick={() => selectReply(root.id, row)}
-              >
-                <Reply size={18} aria-hidden="true" />
-              </button>
-            )}
+            <button
+              type="button"
+              className={s.commentAction}
+              aria-label="回复"
+              title="回复"
+              disabled={sending}
+              onClick={() => selectReply(root.id, row)}
+            >
+              <CornerDownRight size={18} aria-hidden="true" />
+            </button>
             <button
               type="button"
               className={s.commentAction}
@@ -456,11 +456,7 @@ function OpenComments({
                 data-comment-root={root.id}
               >
                 <article className={s.comment}>
-                  {root.removed_at ? (
-                    <p>该评论已删除</p>
-                  ) : (
-                    renderComment(root, root)
-                  )}
+                  {renderComment(root, root)}
                   {root.reply_count > 0 && !thread?.expanded && (
                     <button
                       type="button"

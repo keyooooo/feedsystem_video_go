@@ -90,16 +90,16 @@ func (s *CommentService) Publish(ctx context.Context, comment *Comment) error {
 	return nil
 }
 
-func (s *CommentService) Delete(ctx context.Context, commentID uint, accountID uint) error {
+func (s *CommentService) Delete(ctx context.Context, commentID uint, accountID uint) (int64, error) {
 	comment, err := s.repo.GetByID(ctx, commentID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if comment == nil {
-		return errors.New("comment not found")
+		return 0, errors.New("comment not found")
 	}
 	if comment.AuthorID != accountID {
-		return apierror.ErrUnauthorized
+		return 0, apierror.ErrUnauthorized
 	}
 	return s.repo.DeleteComment(ctx, comment)
 }

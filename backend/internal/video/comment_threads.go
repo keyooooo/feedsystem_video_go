@@ -78,8 +78,8 @@ func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor, vi
 	query := r.db.WithContext(ctx).Table("comments AS root").
 		Select("root.*, (SELECT COUNT(*) FROM comments AS reply WHERE reply.root_comment_id = root.id AND reply.removed_at IS NULL) AS reply_count"+commentPresentationSQL("root"), viewer).
 		Joins("LEFT JOIN accounts AS author ON author.id = root.author_id").
-		Where("root.video_id = ? AND root.root_comment_id IS NULL", videoID).
-		Where("root.removed_at IS NULL OR EXISTS (SELECT 1 FROM comments AS reply WHERE reply.root_comment_id = root.id AND reply.removed_at IS NULL)")
+		Where("root.video_id = ? AND root.root_comment_id IS NULL", videoID)
+	query = query.Where("root.removed_at IS NULL")
 	if cursor != 0 {
 		query = query.Where("root.id < ?", cursor)
 	}
@@ -92,15 +92,13 @@ func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor, vi
 	}
 	if cursor == 0 {
 		var total int64
-		if err := r.db.WithContext(ctx).Model(&Comment{}).Where("video_id = ? AND removed_at IS NULL", videoID).Count(&total).Error; err != nil {
+		if err := r.db.WithContext(ctx).Table("comments AS entry").
+			Joins("LEFT JOIN comments AS root ON root.id = entry.root_comment_id AND root.video_id = entry.video_id AND root.root_comment_id IS NULL AND root.removed_at IS NULL").
+			Where("entry.video_id = ? AND entry.removed_at IS NULL AND (entry.root_comment_id IS NULL OR root.id IS NOT NULL)", videoID).
+			Count(&total).Error; err != nil {
 			return page, err
 		}
 		page.TotalCount = &total
-	}
-	for i := range page.Comments {
-		if page.Comments[i].RemovedAt != nil {
-			page.Comments[i].Content = ""
-		}
 	}
 	return page, nil
 }
@@ -109,14 +107,15 @@ func (r *CommentRepository) listReplies(ctx context.Context, videoID, rootID, cu
 	page := commentPage[commentReply]{Comments: []commentReply{}}
 	var root Comment
 	if err := r.db.WithContext(ctx).Select("id").
-		Where("video_id = ? AND root_comment_id IS NULL", videoID).First(&root, rootID).Error; err != nil {
+		Where("video_id = ? AND root_comment_id IS NULL AND removed_at IS NULL", videoID).First(&root, rootID).Error; err != nil {
 		return page, err
 	}
 	err := r.db.WithContext(ctx).Table("comments AS reply").
-		Select(`reply.*, CASE WHEN target.removed_at IS NULL THEN COALESCE(target.username, '') ELSE '' END AS reply_to_username,
+		Select(`reply.*, COALESCE(target.username, '') AS reply_to_username,
 			CASE WHEN target.id IS NULL OR target.removed_at IS NOT NULL THEN TRUE ELSE FALSE END AS reply_target_deleted`+commentPresentationSQL("reply"), viewer).
 		Joins("LEFT JOIN accounts AS author ON author.id = reply.author_id").
 		Joins("LEFT JOIN comments AS target ON target.id = reply.reply_to_comment_id").
+		Joins("JOIN comments AS root ON root.id = reply.root_comment_id AND root.removed_at IS NULL").
 		Where("reply.root_comment_id = ? AND reply.removed_at IS NULL AND reply.id > ?", rootID, cursor).
 		Order("reply.id ASC").Limit(replyPageSize + 1).Scan(&page.Comments).Error
 	if len(page.Comments) > replyPageSize {

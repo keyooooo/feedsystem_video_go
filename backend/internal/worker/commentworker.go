@@ -134,5 +134,6 @@ func (w *CommentWorker) applyDelete(ctx context.Context, evt *rabbitmq.CommentEv
 	if c == nil {
 		return nil
 	}
-	return w.comments.DeleteComment(ctx, c)
+	_, err = w.comments.DeleteComment(ctx, c)
+	return err
 }

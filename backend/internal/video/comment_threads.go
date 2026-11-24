@@ -98,7 +98,7 @@ func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor, vi
 		page.TotalCount = &total
 	}
 	for i := range page.Comments {
-		if page.Comments[i].RemovedAt != nil {
+		if page.Comments[i].RemovedAt != nil || page.Comments[i].ModerationFolded {
 			page.Comments[i].Content = ""
 		}
 	}
@@ -122,6 +122,11 @@ func (r *CommentRepository) listReplies(ctx context.Context, videoID, rootID, cu
 	if len(page.Comments) > replyPageSize {
 		page.Comments = page.Comments[:replyPageSize]
 		page.NextCursor = page.Comments[replyPageSize-1].ID
+	}
+	for i := range page.Comments {
+		if page.Comments[i].ModerationFolded {
+			page.Comments[i].Content = ""
+		}
 	}
 	return page, err
 }

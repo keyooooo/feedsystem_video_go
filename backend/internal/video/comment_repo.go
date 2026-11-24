@@ -32,6 +32,11 @@ func (r *CommentRepository) GetAllComments(ctx context.Context, videoID uint) ([
 		Order("created_at asc").
 		Limit(200).
 		Find(&comments).Error
+	for i := range comments {
+		if comments[i].ModerationFolded {
+			comments[i].Content = ""
+		}
+	}
 	return comments, err
 }
 

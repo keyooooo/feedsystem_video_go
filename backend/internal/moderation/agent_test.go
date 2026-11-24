@@ -113,3 +113,29 @@ func TestSinglePassDoesNotBindTools(t *testing.T) {
 		t.Fatalf("single-pass failed: reason=%q error=%v calls=%d", reason, err, len(chat.inputs))
 	}
 }
+
+func TestAgentSubmitsTerminalDecisionWithoutAnotherModelCall(t *testing.T) {
+	call := schema.ToolCall{ID: "submit-1", Type: "function", Function: schema.FunctionCall{
+		Name:      "submit_review_decision",
+		Arguments: `{"action":"fold","policy_id":"SPAM_PROMO","confidence":0.98,"evidence_ids":["target:1"],"reason":"主动招揽导流"}`,
+	}}
+	for _, mixed := range []bool{false, true} {
+		calls := []schema.ToolCall{call}
+		if mixed {
+			calls = append(calls, schema.ToolCall{ID: "query", Type: "function", Function: schema.FunctionCall{Name: "get_policy_clause", Arguments: `{"policy_id":"SPAM_PROMO"}`}})
+		}
+		chat := &scriptedChat{replies: []*schema.Message{schema.AssistantMessage("", calls)}}
+		snapshot := Snapshot{Items: []Evidence{{ID: "target:1", Status: "ok", Text: "加群领红包，渠道在主页"}}}
+		failure, result, err := askAgent(context.Background(), chat, &snapshot, nil)
+		if err != nil || len(chat.inputs) != 1 {
+			t.Fatalf("unexpected model execution: %v", err)
+		}
+		if mixed {
+			if failure != "invalid_tool_call" || snapshot.Decision != nil {
+				t.Fatal("mixed terminal call accepted")
+			}
+		} else if failure != "" || snapshot.Decision == nil || !strings.Contains(string(result), "suggest_fold") {
+			t.Fatalf("terminal decision failed: %s %s", failure, result)
+		}
+	}
+}

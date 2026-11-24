@@ -44,8 +44,8 @@ func TestQwenToolCallingProtocol(t *testing.T) {
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 			return nil, err
 		}
-		if body.Model != "test-qwen" || len(body.Tools) != 2 || body.Tools[0].Function.Name != "get_thread_context" || body.Tools[1].Function.Name != "get_policy_clause" {
-			t.Error("provider did not receive the configured model and read-only tools")
+		if body.Model != "test-qwen" || len(body.Tools) != 3 || body.Tools[0].Function.Name != "get_thread_context" || body.Tools[1].Function.Name != "get_policy_clause" || body.Tools[2].Function.Name != "submit_review_decision" {
+			t.Error("provider did not receive the configured model and decision tools")
 		}
 		var response string
 		switch rounds {

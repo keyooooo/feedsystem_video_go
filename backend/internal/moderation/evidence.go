@@ -33,14 +33,15 @@ type ToolTrace struct {
 }
 
 type Snapshot struct {
-	Tools           []ToolTrace `json:"tool_trace,omitempty"`
-	VerifiedChannel bool        `json:"verified_channel,omitempty"`
-	Version         int         `json:"version"`
-	TargetDigest    string      `json:"target_digest,omitempty"`
-	TargetVersion   uint        `json:"target_version"`
-	TargetRemoved   bool        `json:"target_removed,omitempty"`
-	NeedsContext    bool        `json:"needs_context,omitempty"`
-	Items           []Evidence  `json:"items"`
+	Decision        *DecisionIntent `json:"decision_intent,omitempty"`
+	Tools           []ToolTrace     `json:"tool_trace,omitempty"`
+	VerifiedChannel bool            `json:"verified_channel,omitempty"`
+	Version         int             `json:"version"`
+	TargetDigest    string          `json:"target_digest,omitempty"`
+	TargetVersion   uint            `json:"target_version"`
+	TargetRemoved   bool            `json:"target_removed,omitempty"`
+	NeedsContext    bool            `json:"needs_context,omitempty"`
+	Items           []Evidence      `json:"items"`
 	target          video.Comment
 }
 

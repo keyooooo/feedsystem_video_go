@@ -220,3 +220,7 @@ shadow-v2 针对 injection-53/58/60 的三条开发复测共记录 9538 token、
 影子版运行说明见 CONTENT_MODERATION_RUNBOOK.md，2026-11-24 的真实中间件及 Chromium 复验见 CONTENT_MODERATION_ACCEPTANCE.md。完整部署人工演示尚待执行，验收记录保留该限制。
 
 第 11 节自动化验收结果已于 2026-11-24 汇总完成。逐项证据、命令及适用限制见 CONTENT_MODERATION_ACCEPTANCE.md。运行手册中的完整部署人工演示供后续操作参考。
+
+## 13. 自动决策增量计划
+
+下一阶段的终结决策工具、公共处置服务、事务边界、小提交与分阶段验收见 CONTENT_MODERATION_AUTOMATION_PLAN.md。该计划先交付明确垃圾营销的自动折叠，再交付单独验证的自动维持展示。现有影子版的只读工具和已完成验收记录保持当前版本定义，新工具协议实施时记录新版本。正式放量继续按第 7、12 节执行。

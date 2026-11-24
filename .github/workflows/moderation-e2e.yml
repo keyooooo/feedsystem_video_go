@@ -1,0 +1,46 @@
+name: Moderation end-to-end
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+permissions:
+  contents: read
+jobs:
+  report-to-case:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4.13
+        env:
+          MYSQL_ROOT_PASSWORD: test-root
+          MYSQL_DATABASE: moderation_e2e_test
+          MYSQL_USER: moderation
+          MYSQL_PASSWORD: test-password
+        ports: [3306/tcp]
+        options: --health-cmd="mysqladmin ping -h localhost" --health-interval=5s --health-timeout=3s --health-retries=30
+      rabbitmq:
+        image: rabbitmq:4.4.1-alpine
+        env:
+          RABBITMQ_DEFAULT_VHOST: moderation_e2e_test
+          RABBITMQ_DEFAULT_USER: moderation
+          RABBITMQ_DEFAULT_PASS: test-password
+        ports: [5672/tcp]
+        options: --health-cmd="rabbitmq-diagnostics -q ping" --health-interval=5s --health-timeout=5s --health-retries=30
+      redis:
+        image: redis:7.4-alpine
+        ports: [6379/tcp]
+        options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=3s --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Exercise the report API, outbox and consumer
+        working-directory: backend
+        env:
+          MODERATION_TEST_MYSQL_DSN: moderation:test-password@tcp(127.0.0.1:${{ job.services.mysql.ports[3306] }})/moderation_e2e_test?parseTime=true
+          MODERATION_TEST_REDIS_ADDR: 127.0.0.1:${{ job.services.redis.ports[6379] }}
+          MODERATION_TEST_AMQP_URL: amqp://moderation:test-password@127.0.0.1:${{ job.services.rabbitmq.ports[5672] }}/moderation_e2e_test
+        run: go test -race -tags=moderation_e2e -count=1 -timeout=90s -v ./internal/moderation

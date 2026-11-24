@@ -16,6 +16,19 @@ http
       res.end(JSON.stringify({ status: "ok" }));
       return;
     }
+    if (url.pathname === "/moderation/stream") {
+      if (req.headers.authorization !== "Bearer container-smoke" ||
+          url.searchParams.get("probe") !== "sse") {
+        res.writeHead(400).end();
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-store",
+      });
+      res.write("data: moderation-ready\n\n");
+      return;
+    }
     if (/^\/media\/assets\/[a-f0-9]{32}$/.test(url.pathname)) {
       if (url.searchParams.get("resolve") === "1") {
         res.writeHead(200, {

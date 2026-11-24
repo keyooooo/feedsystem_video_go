@@ -145,6 +145,10 @@ services:
       RABBITMQ_USER: ${RABBITMQ_USER:-admin}
       RABBITMQ_PASS: ${RABBITMQ_PASS:-password123}
       GOMEMLIMIT: 160MiB
+      MODERATION_MODEL: ${MODERATION_MODEL:-}
+      MODERATION_MODEL_BASE_URL: ${MODERATION_MODEL_BASE_URL:-}
+      MODERATION_API_KEY: ${MODERATION_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
     volumes:
       - ./backend/configs/config.docker.yaml:/app/configs/config.yaml:ro
     deploy:

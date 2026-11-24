@@ -21,7 +21,33 @@ docker run -d --name "$SMOKE_ID-backend" --network "$SMOKE_ID" --network-alias b
 docker run -d --name "$SMOKE_ID-frontend" --network "$SMOKE_ID" -p 127.0.0.1::80 "$SMOKE_ID" >/dev/null
 ADDRESS="http://$(docker port "$SMOKE_ID-frontend" 80)"
 curl --retry 15 --retry-all-errors --retry-max-time 30 --retry-delay 1 --max-time 5 -fsS "$ADDRESS/api/healthz" | grep -q '"status":"ok"'
-for route in / /video/1 /u/2 /messages/2; do curl -fsS "$ADDRESS$route" | grep -q 'id="app"'; done
+for route in / /video/1 /u/2 /messages/2 /moderation /reports/1; do
+  curl -fsS "$ADDRESS$route" | grep -q 'id="app"'
+done
+# The upstream leaves the connection open so a buffering regression causes a timeout.
+node --input-type=module - "$ADDRESS" <<'JS'
+import assert from "node:assert/strict";
+const response = await fetch(new URL("/api/moderation/stream?probe=sse", process.argv[2]), {
+  headers: { Authorization: "Bearer container-smoke", Accept: "text/event-stream" },
+  signal: AbortSignal.timeout(5000),
+});
+assert.equal(response.status, 200);
+assert.match(response.headers.get("content-type") ?? "", /^text\/event-stream\b/);
+assert.equal(response.headers.get("cache-control"), "no-store");
+const reader = response.body.getReader();
+try {
+  const decoder = new TextDecoder();
+  let event = "";
+  while (!event.includes("\n\n")) {
+    const { value, done } = await reader.read();
+    assert.equal(done, false);
+    event += decoder.decode(value, { stream: true });
+  }
+  assert.equal(event, "data: moderation-ready\n\n");
+} finally {
+  await reader.cancel();
+}
+JS
 HEADERS="$(mktemp)"
 BODY="$(mktemp)"
 curl -fsS --range 0-63 -D "$HEADERS" "$ADDRESS/static/clip.mp4" -o "$BODY"

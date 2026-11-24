@@ -40,3 +40,9 @@ Chromium 执行命令为 frontend 目录下的 npx playwright test e2e/moderatio
 - 已有 CommentPanel React Hook lint 警告和构建大分块提示仍存在。
 - 工作区保留此前删除弹窗与 study-guide 的独立修改。
 - 所有真实模型新增调用须先说明预计规模并取得确认，日常测试使用本地模型桩。
+
+## 最终核对
+
+2026-11-24 最终执行 go test -race ./... 全部通过，日志为 /tmp/moderation-final-go.log。脚本化冒烟报告为 /tmp/moderation-final-scripted.json，模型为 scripted，流程回归使用当前提示词版本。此前前端 36 条单元测试、类型检查、lint（已有 1 条警告）和生产构建通过，当前 Chromium 审核复验 4/4 通过。
+
+第 11 节各项交付已取得上述自动化证据，运行步骤与演示说明已交付。完整部署人工演示尚未执行，真实模型质量问题和正式放量保持后续事项。当前交付包含运行所需配置与检查方法，部署时必须按运行手册确认 rollout 比例为 0。

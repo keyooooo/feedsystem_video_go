@@ -1,0 +1,21 @@
+.page { max-width: 1120px; margin-inline: auto; padding: clamp(1rem, 4vw, 2.5rem); }
+.header { display: flex; justify-content: space-between; align-items: center; }
+.layout { display: grid; gap: 1.25rem; grid-template-columns: minmax(13rem, 1fr) minmax(0, 2.5fr); }
+.queue, .detail { background: var(--panel); padding: 1rem; border-radius: 0.75rem; }
+.page button, .page select { min-height: 44px; }
+.queue ul { list-style: none; margin-block: 1rem; padding: 0; }
+.queue li + li { margin-top: 0.35rem; }
+.queue li button { width: 100%; display: flex; justify-content: space-between; align-items: center; }
+.queue button[aria-pressed="true"] { color: var(--accent); border-color: currentColor; }
+.detail blockquote { margin: 1rem 0; border-inline-start: 3px solid var(--accent); padding: 0.75rem; background: var(--bg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail small { font-size: 0.8rem; color: var(--muted); }
+.detail form, .detail label { display: grid; gap: 0.5rem; }
+.detail form { gap: 1rem; }
+.detail textarea { width: 100%; min-height: 6rem; }
+.detail button { justify-self: start; }
+@media (max-width: 660px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.evidence { margin-block: 1.25rem; }
+.evidence details + details { margin-top: 0.75rem; }
+.evidence summary { cursor: pointer; min-height: 44px; padding-block: 0.5rem; }
+.evidence li { margin-block: 0.5rem; }
+.evidence blockquote { margin: 0.5rem 0; }

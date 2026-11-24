@@ -36,6 +36,7 @@ export type Video = {
 }
 
 export type Comment = {
+  moderation_folded?: boolean
   id: number
   username: string
   video_id: number

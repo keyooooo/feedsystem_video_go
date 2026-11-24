@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 import { openNotificationStream } from "../api/client";
 
-export function useNotificationStream(token: string, sync: () => void) {
+export function useNotificationStream(token: string, sync: () => void, openStream = openNotificationStream) {
   useEffect(() => {
+    if (!token) return;
     let stopped = false;
     let retry: ReturnType<typeof setTimeout>;
     let refresh: ReturnType<typeof setTimeout> | undefined;
@@ -23,7 +24,7 @@ export function useNotificationStream(token: string, sync: () => void) {
       const expire = () => controller.abort();
       let watchdog = setTimeout(expire, 45000);
       try {
-        const response = await openNotificationStream(token, signal);
+        const response = await openStream(token, signal);
         if (
           !response.ok ||
           !response.body ||
@@ -83,5 +84,5 @@ export function useNotificationStream(token: string, sync: () => void) {
       clearInterval(poll);
       window.removeEventListener("focus", scheduleSync);
     };
-  }, [token, sync]);
+  }, [token, sync, openStream]);
 }

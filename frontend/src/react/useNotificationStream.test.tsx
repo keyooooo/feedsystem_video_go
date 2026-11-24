@@ -41,3 +41,16 @@ it("syncs after a data frame split across chunks, ignores heartbeats and aborts 
   hook.unmount();
   streams.forEach((stream) => stream.close());
 });
+
+it("opens an authorized review stream only after a token is available", () => {
+  const openReview = vi.fn(() => Promise.resolve(new Response(null, { status: 403 })));
+  const sync = vi.fn();
+  const hook = renderHook(({ token }) => useNotificationStream(token, sync, openReview), {
+    initialProps: { token: "" },
+  });
+  expect(openReview).not.toHaveBeenCalled();
+  hook.rerender({ token: "reviewer" });
+  expect(openReview).toHaveBeenCalledWith("reviewer", expect.any(AbortSignal));
+  hook.rerender({ token: "" });
+  expect(openReview).toHaveBeenCalledTimes(1);
+});

@@ -17,6 +17,8 @@ func TestRolloutRequiresMatchingEvidenceAndSampleThresholds(t *testing.T) {
 		change func(*Rollout)
 	}{
 		{"disabled", func(r *Rollout) { r.Percent = 0 }},
+		{"different prompt", func(r *Rollout) { r.PromptVersion = "shadow-v1" }},
+		{"different policy", func(r *Rollout) { r.PolicyVersion = "old-policy" }},
 		{"different model", func(r *Rollout) { r.Model = "other" }},
 		{"different rule", func(r *Rollout) { r.RuleVersion = "old" }},
 		{"normal false positive", func(r *Rollout) { r.FalseCandidates = 1 }},
@@ -31,5 +33,13 @@ func TestRolloutRequiresMatchingEvidenceAndSampleThresholds(t *testing.T) {
 				t.Fatal("invalid rollout accepted")
 			}
 		})
+	}
+}
+
+func TestRolloutRejectsMatchingHistoricalPrompt(t *testing.T) {
+	run := ShadowRun{Model: "test-model", PolicyVersion: policyVersion, PromptVersion: "shadow-v1", RuleVersion: CandidateRuleVersion}
+	rollout := Rollout{Model: run.Model, PolicyVersion: run.PolicyVersion, PromptVersion: run.PromptVersion, RuleVersion: run.RuleVersion, DatasetVersion: "old-holdout", DatasetSHA256: strings.Repeat("1", 64), DevelopmentSHA256: strings.Repeat("2", 64), ReportSHA256: strings.Repeat("3", 64), Percent: 100, NormalCases: 100, SpamCases: 30, CorrectSpamCandidates: 30, InjectionCases: 20, InjectionBlocked: 20}
+	if rollout.allows(run, 1) {
+		t.Fatal("historical prompt evidence enabled automatic folding")
 	}
 }

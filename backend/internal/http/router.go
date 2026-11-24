@@ -11,6 +11,7 @@ import (
 	"feedsystem_video_go/internal/middleware/rabbitmq"
 	"feedsystem_video_go/internal/middleware/ratelimit"
 	rediscache "feedsystem_video_go/internal/middleware/redis"
+	"feedsystem_video_go/internal/moderation"
 	"feedsystem_video_go/internal/social"
 	"feedsystem_video_go/internal/upload"
 	"feedsystem_video_go/internal/video"
@@ -54,6 +55,9 @@ func SetRouter(db *gorm.DB, cache *rediscache.Client, rmq *rabbitmq.RabbitMQ, up
 
 	// account
 	accountRepository := account.NewAccountRepository(db)
+	moderation.RegisterReports(r.Group("/report", jwt.JWTAuth(accountRepository, cache)), db, limit(cache, "report_write", 10, time.Minute, ratelimit.KeyByAccount))
+	moderation.RegisterReview(r.Group("/moderation", jwt.JWTAuth(accountRepository, cache)), db, cache)
+	r.POST("/comment/reveal", jwt.SoftJWTAuth(accountRepository, cache), moderation.RevealComment(db))
 	accountService := account.NewAccountService(accountRepository, cache)
 	accountHandler := account.NewAccountHandler(accountService)
 	secureSessions := auth.CookieOrigin() != ""

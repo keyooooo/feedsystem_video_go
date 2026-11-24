@@ -187,3 +187,5 @@ go run ./cmd/moderation-eval -prepare-rollout report.json -input holdout.jsonl -
 提示词 shadow-v2 明确要求引用实际依赖的上下文证据。历史开发报告仍对应 shadow-v1，新版真实模型效果待最小样本验证及独立验收。版本变化要求重新匹配放量记录与独立影子确认。
 
 shadow-v2 针对 injection-53/58/60 的三条开发复测共记录 9538 token、9 次模型请求。Agent 严格计分为 0/3，其中一条达到 20 秒总时限，其余两条仍缺 parent:1 引用。实际轨迹未出现越权工具调用。该修改未证明引用效果改善，下一步需要人工核对这些目标是否确实依赖父评论，以及草案 required_evidence 的适用性，保留失败标签与原始报告。报告位于 backend/internal/moderation/testdata/eval-context-v2-report.json。
+
+影子版演示验收可独立推进举报、机器建议、人工终审和结果通知闭环。64 条草案的完整人工标注作为后续评测工作，不作为继续开发或演示验收的前置条件。审核台支持逐单保存并进入下一条，正式自动折叠仍遵循独立留出集与线上确认门槛。

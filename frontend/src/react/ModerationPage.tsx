@@ -81,6 +81,7 @@ export default function ModerationPage() {
     return () => { disposed = true; };
   }, [active, revision]);
 
+  const nextCase = cases?.find(item => item.id !== active);
   const latestDecision = detail?.decisions.at(-1);
   const mayConfirmFalseFold = latestDecision?.action === "fold" && latestDecision.reviewer_id === 0;
 
@@ -142,6 +143,11 @@ export default function ModerationPage() {
       <section className={s.detail} aria-label="工单详情">
         {detail ? <>
           <h2>工单 #{detail.case.id} <small>{stateNames[detail.case.state]}</small></h2>
+          {detail.case.state === "resolved" && nextCase && <button type="button" disabled={busy} onClick={() => {
+            setDetail(undefined); setActive(nextCase.id); setReason(""); setSubmission(undefined);
+            setDraftVersion(undefined); setConflict(false); setAction("keep"); setPolicyID("");
+            setFalseFold(false); setError("");
+          }}>审核下一条</button>}
           <p>{reasonNames[detail.reason_code] ?? detail.reason_code} {detail.detail}</p>
           {detail.case.routing_reason === "outside_text_scope" && <p>涉及视频画面或音频，需人工核对。</p>}
           <blockquote>{detail.comment.removed_at ? "作者已删除评论" : detail.comment.content}</blockquote>

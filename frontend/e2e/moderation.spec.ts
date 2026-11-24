@@ -39,7 +39,7 @@ test("reviewer inspects cited evidence and submits a versioned decision", async 
       return route.fulfill({ contentType: "text/event-stream", body: ": keepalive\n\n" });
     }
     if (path.endsWith("/moderation/list")) {
-      return route.fulfill({ json: { cases: resolved ? [] : [entry] } });
+      return route.fulfill({ json: { cases: resolved ? [{ ...entry, id: 28 }] : [entry, { ...entry, id: 28 }] } });
     }
     if (path.endsWith("/moderation/detail")) {
       return route.fulfill({ json: {
@@ -85,6 +85,10 @@ test("reviewer inspects cited evidence and submits a versioned decision", async 
   await page.getByLabel("审核理由").fill("回复在提醒读者");
   await page.getByRole("button", { name: "保存决定" }).click();
   await expect(page.getByText("维持现状 · 回复在提醒读者")).toBeVisible();
+  await expect(page.getByRole("button", { name: "审核下一条" })).toBeVisible();
+  await page.getByRole("button", { name: "审核下一条" }).click();
+  await expect(page.getByRole("button", { name: /#28/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("审核理由")).toHaveValue("");
 });
 
 test("reviewer rechecks changed versions and retries the exact in-doubt decision", async ({ page }) => {

@@ -485,10 +485,25 @@ test("muting preserves the playhead and a user-paused video", async ({
   await expect
     .poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
     .toBeGreaterThan(0.1);
-  const pausedAt = await video.evaluate((v: HTMLVideoElement) => {
+  // The short fixture can reach a loop boundary before CI dispatches the click.
+  // Settle a paused seek away from either boundary before testing mute behavior.
+  await video.evaluate((v: HTMLVideoElement) => {
+    v.loop = false;
     v.pause();
-    return v.currentTime;
+    const time = v.duration / 2;
+    v.currentTime = time;
   });
+  await expect
+    .poll(() =>
+      video.evaluate((v: HTMLVideoElement) => !v.seeking && v.readyState >= 2),
+    )
+    .toBe(true);
+  // Capture the actual settled time: browser decoders may seek to a nearby frame.
+  const pausedAt = await video.evaluate((v: HTMLVideoElement) => v.currentTime);
+  expect(pausedAt).toBeGreaterThan(0.1);
+  expect(pausedAt).toBeLessThan(
+    await video.evaluate((v: HTMLVideoElement) => v.duration - 0.1),
+  );
   await page.getByRole("button", { name: "取消静音", exact: true }).click();
   expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
   expect(

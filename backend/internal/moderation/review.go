@@ -26,7 +26,7 @@ type decisionInput struct {
 	CaseID        uint   `json:"case_id" binding:"required"`
 	CaseVersion   *uint  `json:"case_version" binding:"required"`
 	TargetVersion *uint  `json:"target_version" binding:"required"`
-	Action        string `json:"action" binding:"required,oneof=keep fold restore"`
+	Action        string `json:"action" binding:"required,oneof=keep fold restore delete"`
 	Reason        string `json:"reason" binding:"required,max=200"`
 	RequestID     string `json:"request_id" binding:"required,max=64"`
 }
@@ -224,13 +224,20 @@ func decide(db *gorm.DB, user uint, input decisionInput) (Decision, error) {
 		}
 		wasFolded := target.ModerationFolded
 		folded := input.Action == "fold" || (input.Action == "keep" && target.ModerationFolded)
-		if err := tx.Model(&target).Updates(map[string]any{"moderation_folded": folded, "moderation_version": target.ModerationVersion + 1}).Error; err != nil {
+		updates := map[string]any{"moderation_folded": folded, "moderation_version": target.ModerationVersion + 1}
+		deleted := input.Action == "delete"
+		if deleted {
+			updates["removed_at"] = time.Now().UTC()
+			updates["content"] = ""
+			updates["moderation_deleted"] = true
+		}
+		if err := tx.Model(&target).Updates(updates).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&item).Updates(map[string]any{"state": "resolved", "version": item.Version + 1}).Error; err != nil {
 			return err
 		}
-		if err := recordDecision(tx, report, target, &decision, folded != wasFolded); err != nil {
+		if err := recordDecision(tx, report, target, &decision, deleted || folded != wasFolded); err != nil {
 			return err
 		}
 		return tx.First(&decision, decision.ID).Error
@@ -248,7 +255,7 @@ func RevealComment(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		var target video.Comment
-		err := db.WithContext(c.Request.Context()).Select("content").Where("id = ? AND removed_at IS NULL", input.ID).Take(&target).Error
+		err := db.WithContext(c.Request.Context()).Select("content").Where("id = ? AND removed_at IS NULL", input.ID).Where("NOT EXISTS (SELECT 1 FROM comments AS root WHERE root.id = comments.root_comment_id AND root.moderation_deleted = TRUE)").Take(&target).Error
 		if err != nil {
 			respondError(c, err)
 			return
@@ -265,6 +272,8 @@ func notifyDecision(tx *gorm.DB, report Report, target video.Comment, decision D
 		message = "你的举报已处理，相关评论已折叠"
 	case "restore":
 		message = "你的举报已复核，相关评论已恢复展示"
+	case "delete":
+		message = "你的举报已处理，相关评论已由审核员删除"
 	case "target_removed":
 		message = "你的举报已处理，作者已删除相关评论"
 	}

@@ -78,7 +78,7 @@ func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor, vi
 	query := r.db.WithContext(ctx).Table("comments AS root").
 		Select("root.*, (SELECT COUNT(*) FROM comments AS reply WHERE reply.root_comment_id = root.id AND reply.removed_at IS NULL) AS reply_count"+commentPresentationSQL("root"), viewer).
 		Joins("LEFT JOIN accounts AS author ON author.id = root.author_id").
-		Where("root.video_id = ? AND root.root_comment_id IS NULL", videoID).
+		Where("root.video_id = ? AND root.root_comment_id IS NULL AND root.moderation_deleted = FALSE", videoID).
 		Where("root.removed_at IS NULL OR EXISTS (SELECT 1 FROM comments AS reply WHERE reply.root_comment_id = root.id AND reply.removed_at IS NULL)")
 	if cursor != 0 {
 		query = query.Where(`(root.moderation_folded > COALESCE((SELECT moderation_folded FROM comments WHERE id = ?), 0)) OR
@@ -93,7 +93,7 @@ func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor, vi
 	}
 	if cursor == 0 {
 		var total int64
-		if err := r.db.WithContext(ctx).Model(&Comment{}).Where("video_id = ? AND removed_at IS NULL", videoID).Count(&total).Error; err != nil {
+		if err := r.db.WithContext(ctx).Table("comments AS visible").Where("visible.video_id = ? AND visible.removed_at IS NULL", videoID).Where("NOT EXISTS (SELECT 1 FROM comments AS root WHERE root.id = visible.root_comment_id AND root.moderation_deleted = TRUE)").Count(&total).Error; err != nil {
 			return page, err
 		}
 		page.TotalCount = &total
@@ -110,7 +110,7 @@ func (r *CommentRepository) listReplies(ctx context.Context, videoID, rootID, cu
 	page := commentPage[commentReply]{Comments: []commentReply{}}
 	var root Comment
 	if err := r.db.WithContext(ctx).Select("id").
-		Where("video_id = ? AND root_comment_id IS NULL", videoID).First(&root, rootID).Error; err != nil {
+		Where("video_id = ? AND root_comment_id IS NULL AND moderation_deleted = FALSE", videoID).First(&root, rootID).Error; err != nil {
 		return page, err
 	}
 	query := r.db.WithContext(ctx).Table("comments AS reply").

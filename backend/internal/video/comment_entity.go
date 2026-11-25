@@ -3,6 +3,7 @@ package video
 import "time"
 
 type Comment struct {
+	ModerationDeleted bool       `json:"-" gorm:"not null;default:false"`
 	ModerationFolded  bool       `json:"moderation_folded,omitempty" gorm:"not null;default:false"`
 	ModerationVersion uint       `json:"-" gorm:"not null;default:0"`
 	ID                uint       `gorm:"primaryKey;index:idx_comment_video_thread,priority:3;index:idx_comment_thread_removed,priority:3" json:"id"`

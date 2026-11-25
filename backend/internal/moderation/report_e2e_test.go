@@ -370,6 +370,13 @@ func TestReportEndToEnd(t *testing.T) {
 	}
 	calibrationModel := fmt.Sprintf("calibration-%d", id)
 	autoModel := fmt.Sprintf("automatic-%d", id)
+	var liveFoldModel model.ToolCallingChatModel
+	if os.Getenv("MODERATION_E2E_REAL_FOLD") == "1" {
+		liveFoldModel, autoModel, err = moderation.ModelFromEnv(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	shadowContext, stopShadow := context.WithCancel(ctx)
 	shadowDone := make(chan error, 1)
 	go func() {
@@ -378,7 +385,11 @@ func TestReportEndToEnd(t *testing.T) {
 				return moderation.NewShadowEvaluator(db, nil, "test-model")(attempt, report)
 			}
 			if report.ReasonCode == "spam_promo" {
-				return moderation.NewShadowEvaluator(db, terminalFoldModel{}, autoModel)(attempt, report)
+				var chat model.ToolCallingChatModel = terminalFoldModel{}
+				if liveFoldModel != nil && report.RequestID == "approved-fold" {
+					chat = liveFoldModel
+				}
+				return moderation.NewShadowEvaluator(db, chat, autoModel)(attempt, report)
 			}
 			policy, prompt := moderation.EvalVersions()
 			return moderation.ShadowRun{PolicyVersion: policy, PromptVersion: prompt, RuleVersion: moderation.CandidateRuleVersion,
@@ -632,7 +643,7 @@ func TestReportEndToEnd(t *testing.T) {
 			if err := db.Where("case_id = ?", rows[0].ID).Last(&trace).Error; err != nil {
 				t.Fatal(err)
 			}
-			t.Fatalf("approved candidate sent to manual review: model=%q failure=%q candidate=%t evidence=%s", trace.Model, trace.Failure, trace.FoldCandidate, trace.Evidence)
+			t.Fatalf("approved candidate sent to manual review: failure=%q outcome=%q calls=%d tokens=%d suggestion=%s", trace.Failure, trace.ExecutionOutcome, trace.ModelCalls, trace.Tokens, trace.Suggestion)
 		}
 		if len(rows) != 1 || rows[0].State != "resolved" {
 			return false
@@ -645,7 +656,7 @@ func TestReportEndToEnd(t *testing.T) {
 		t.Fatalf("missing automatic audit record: %+v (%v)", automatic, err)
 	}
 	var appliedRun moderation.ShadowRun
-	if err := db.First(&appliedRun, *automatic.ShadowRunID).Error; err != nil || appliedRun.ExecutionOutcome != "applied" || appliedRun.ModelCalls != 1 {
+	if err := db.First(&appliedRun, *automatic.ShadowRunID).Error; err != nil || appliedRun.ExecutionOutcome != "applied" || appliedRun.ModelCalls < 1 {
 		t.Fatalf("missing applied terminal execution: outcome=%q calls=%d (%v)", appliedRun.ExecutionOutcome, appliedRun.ModelCalls, err)
 	}
 	if err := db.First(&promo, promo.ID).Error; err != nil || !promo.ModerationFolded {
@@ -702,7 +713,8 @@ func TestReportEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	request = fmt.Sprintf(`{"comment_id":%d,"reason_code":"spam_promo","request_id":"paused-rollout"}`, pausedTarget.ID)
-	response = post("/report/create", request, token("paused-reporter"), 202)
+	tokenForPausedReport := token("paused-reporter")
+	response = post("/report/create", request, tokenForPausedReport, 202)
 	var pausedReport struct {
 		ID uint `json:"report_id"`
 	}
@@ -729,6 +741,22 @@ func TestReportEndToEnd(t *testing.T) {
 	}
 	if err := db.First(&pausedTarget, pausedTarget.ID).Error; err != nil || pausedTarget.ModerationFolded {
 		t.Fatalf("paused rollout changed display state (%v)", err)
+	}
+
+	var pending moderation.Case
+	if err := db.First(&pending, pausedRun.CaseID).Error; err != nil {
+		t.Fatal(err)
+	}
+	deleteInput := fmt.Sprintf(`{"case_id":%d,"case_version":%d,"target_version":%d,"action":"delete","reason":"人工删除测试","request_id":"reviewer-delete"}`, pending.ID, pending.Version, pausedTarget.ModerationVersion)
+	post("/moderation/decide", deleteInput, reporter, 403)
+	deletedDecision := post("/moderation/decide", deleteInput, other, 200)
+	if retry := post("/moderation/decide", deleteInput, other, 200); retry.Body.String() != deletedDecision.Body.String() {
+		t.Fatal("repeated reviewer deletion did not return the original decision")
+	}
+	post("/comment/reveal", fmt.Sprintf(`{"comment_id":%d}`, pausedTarget.ID), "", 404)
+	gone := post("/report/get", fmt.Sprintf(`{"report_id":%d}`, pausedReport.ID), tokenForPausedReport, 200)
+	if !strings.Contains(gone.Body.String(), `"result":"delete"`) {
+		t.Fatal("reporter did not see the reviewer deletion result")
 	}
 
 	removalQuery := fmt.Sprintf(`{"report_id":%d}`, removal.ReportID)

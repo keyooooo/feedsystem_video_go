@@ -697,6 +697,40 @@ func TestReportEndToEnd(t *testing.T) {
 		t.Fatalf("manual override did not restore display state: %v", err)
 	}
 
+	pausedTarget := video.Comment{VideoID: 1, AuthorID: claims.AccountID, Content: promo.Content}
+	if err := db.Create(&pausedTarget).Error; err != nil {
+		t.Fatal(err)
+	}
+	request = fmt.Sprintf(`{"comment_id":%d,"reason_code":"spam_promo","request_id":"paused-rollout"}`, pausedTarget.ID)
+	response = post("/report/create", request, reporter, 202)
+	var pausedReport struct {
+		ID uint `json:"report_id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &pausedReport); err != nil || pausedReport.ID == 0 {
+		t.Fatal("missing paused rollout report ID")
+	}
+	var pausedRun moderation.ShadowRun
+	eventually("approved intent referred after rollout pause", func() bool {
+		err := db.Where("case_id = (SELECT id FROM moderation_cases WHERE report_id = ?)", pausedReport.ID).Take(&pausedRun).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return true
+	})
+	if !pausedRun.FoldCandidate || pausedRun.ResultState != "awaiting_review" || pausedRun.ExecutionOutcome != "rollout_ineligible" {
+		t.Fatalf("paused rollout produced unexpected result: candidate=%t state=%q outcome=%q", pausedRun.FoldCandidate, pausedRun.ResultState, pausedRun.ExecutionOutcome)
+	}
+	var pausedDecisions int64
+	if err := db.Model(&moderation.Decision{}).Where("case_id = ?", pausedRun.CaseID).Count(&pausedDecisions).Error; err != nil || pausedDecisions != 0 {
+		t.Fatalf("paused rollout wrote %d decisions (%v)", pausedDecisions, err)
+	}
+	if err := db.First(&pausedTarget, pausedTarget.ID).Error; err != nil || pausedTarget.ModerationFolded {
+		t.Fatalf("paused rollout changed display state (%v)", err)
+	}
+
 	removalQuery := fmt.Sprintf(`{"report_id":%d}`, removal.ReportID)
 	eventually("deleted target public result", func() bool {
 		rec := post("/report/get", removalQuery, reporter, 200)

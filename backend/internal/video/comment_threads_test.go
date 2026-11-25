@@ -115,6 +115,30 @@ func TestCommentThreadsMySQL(t *testing.T) {
 	if err != nil || len(nextReplies.Comments) != 1 || nextReplies.NextCursor != 0 {
 		t.Fatalf("unexpected next replies page: %#v, %v", nextReplies, err)
 	}
+	for _, id := range []uint{root.ID, firstReplies.Comments[0].ID} {
+		if err := db.Model(&Comment{}).Where("id = ?", id).Update("moderation_folded", true).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err = repo.listThreads(ctx, videoID, 0, 0)
+	if err != nil || len(page.Comments) != threadPageSize || page.NextCursor != roots[0].ID {
+		t.Fatalf("folded root displaced a visible root: %+v (%v)", page, err)
+	}
+	next, err = repo.listThreads(ctx, videoID, page.NextCursor, 0)
+	if err != nil || len(next.Comments) != 1 || next.Comments[0].ID != root.ID || next.Comments[0].Content != "" || !next.Comments[0].ModerationFolded {
+		t.Fatalf("expected masked folded root on final page: %+v (%v)", next, err)
+	}
+	firstReplies, err = repo.listReplies(ctx, videoID, other.ID, 0, 0)
+	if err != nil || len(firstReplies.Comments) != replyPageSize || firstReplies.Comments[0].ModerationFolded {
+		t.Fatalf("folded reply displaced a visible reply: %+v (%v)", firstReplies, err)
+	}
+	nextReplies, err = repo.listReplies(ctx, videoID, other.ID, firstReplies.NextCursor, 0)
+	if err != nil || len(nextReplies.Comments) != 1 || nextReplies.Comments[0].Content != "" || !nextReplies.Comments[0].ModerationFolded {
+		t.Fatalf("expected masked folded reply on final page: %+v (%v)", nextReplies, err)
+	}
+	if err := db.Model(&Comment{}).Where("id = ?", root.ID).Update("moderation_folded", false).Error; err != nil {
+		t.Fatal(err)
+	}
 	raceRoot := roots[2]
 	done := make(chan error, 1)
 	go func() {

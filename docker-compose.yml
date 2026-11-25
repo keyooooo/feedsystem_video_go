@@ -78,7 +78,6 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-password123}
-      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: "0.7" # 限制 Erlang 虚拟机内存水位
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     deploy:
@@ -145,6 +144,10 @@ services:
       RABBITMQ_USER: ${RABBITMQ_USER:-admin}
       RABBITMQ_PASS: ${RABBITMQ_PASS:-password123}
       GOMEMLIMIT: 160MiB
+      MODERATION_MODEL: ${MODERATION_MODEL:-}
+      MODERATION_MODEL_BASE_URL: ${MODERATION_MODEL_BASE_URL:-}
+      MODERATION_API_KEY: ${MODERATION_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
     volumes:
       - ./backend/configs/config.docker.yaml:/app/configs/config.yaml:ro
     deploy:

@@ -63,7 +63,9 @@ function NotificationRow({
   const destination =
     item.type === "follow" && item.sender_id
       ? `/u/${item.sender_id}`
-      : item.target_id && ["like", "comment", "mention"].includes(item.type)
+      : item.type === "moderation_report" && item.target_id
+        ? `/reports/${item.target_id}`
+        : item.target_id && ["like", "comment", "mention"].includes(item.type)
         ? `/video/${item.target_id}`
         : undefined;
   const date = new Date(item.created_at);

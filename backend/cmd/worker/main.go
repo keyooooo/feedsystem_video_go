@@ -6,6 +6,7 @@ import (
 	"feedsystem_video_go/internal/db"
 	mqrabbit "feedsystem_video_go/internal/middleware/rabbitmq"
 	rediscache "feedsystem_video_go/internal/middleware/redis"
+	"feedsystem_video_go/internal/moderation"
 	"feedsystem_video_go/internal/observability"
 	"feedsystem_video_go/internal/social"
 	"feedsystem_video_go/internal/video"
@@ -187,6 +188,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	startModerationShadow(ctx, sqlDB, cache)
 
 	pprofServer, err := observability.NewPprofServer(
 		"Worker",
@@ -201,6 +203,9 @@ func main() {
 	}
 
 	// 每个 Worker 独立 Channel + 自动重连
+	go moderation.RunReportQueue(ctx, func() (*amqp.Connection, error) {
+		return amqp.DialConfig(url, amqp.Config{Dial: amqp.DefaultDial(5 * time.Second)})
+	}, sqlDB, cache)
 	go runWorkerWithRetry(ctx, "SocialWorker", conn, func(ch *amqp.Channel) error {
 		return worker.NewSocialWorker(ch, socialRepo, socialQueue).Run(ctx)
 	})

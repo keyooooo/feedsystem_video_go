@@ -22,6 +22,8 @@ import { Brand, brandName } from "./Brand";
 import { NotificationButton } from "./NotificationButton";
 import s from "./App.module.css";
 
+const ReportStatusPage = lazy(() => import("./ReportStatusPage"));
+const ModerationPage = lazy(() => import("./ModerationPage"));
 const UploadPage = lazy(() => import("./UploadPage"));
 const ProfilePage = lazy(() =>
   import("./SocialPages").then((m) => ({ default: m.ProfilePage })),
@@ -203,6 +205,8 @@ export default function App() {
                 }
               />
               <Route path="/feed" element={<Navigate to="/" replace />} />
+              <Route path="/reports/:id" element={<Protected><ReportStatusPage key={accountId} /></Protected>} />
+              <Route path="/moderation" element={<Protected><ModerationPage key={accountId} /></Protected>} />
               <Route path="/hot" element={<FeedPage key="ranking" ranking />} />
               <Route path="/video/:id" element={<DetailPage />} />
               <Route

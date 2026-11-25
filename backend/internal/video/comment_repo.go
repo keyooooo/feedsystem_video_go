@@ -47,9 +47,14 @@ func (r *CommentRepository) GetAllComments(ctx context.Context, videoID uint) ([
 	var comments []Comment
 	err := r.db.WithContext(ctx).
 		Where("video_id = ? AND root_comment_id IS NULL AND removed_at IS NULL", videoID).
-		Order("created_at asc").
+		Order("moderation_folded ASC, created_at ASC").
 		Limit(200).
 		Find(&comments).Error
+	for i := range comments {
+		if comments[i].ModerationFolded {
+			comments[i].Content = ""
+		}
+	}
 	return comments, err
 }
 

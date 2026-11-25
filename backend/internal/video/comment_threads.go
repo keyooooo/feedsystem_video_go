@@ -81,9 +81,10 @@ func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor, vi
 		Where("root.video_id = ? AND root.root_comment_id IS NULL", videoID)
 	query = query.Where("root.removed_at IS NULL")
 	if cursor != 0 {
-		query = query.Where("root.id < ?", cursor)
+		query = query.Where(`(root.moderation_folded > COALESCE((SELECT moderation_folded FROM comments WHERE id = ?), 0)) OR
+ (root.moderation_folded = COALESCE((SELECT moderation_folded FROM comments WHERE id = ?), 0) AND root.id < ?)`, cursor, cursor, cursor)
 	}
-	if err := query.Order("root.id DESC").Limit(threadPageSize + 1).Scan(&page.Comments).Error; err != nil {
+	if err := query.Order("root.moderation_folded ASC, root.id DESC").Limit(threadPageSize + 1).Scan(&page.Comments).Error; err != nil {
 		return page, err
 	}
 	if len(page.Comments) > threadPageSize {
@@ -100,6 +101,11 @@ func (r *CommentRepository) listThreads(ctx context.Context, videoID, cursor, vi
 		}
 		page.TotalCount = &total
 	}
+	for i := range page.Comments {
+		if page.Comments[i].RemovedAt != nil || page.Comments[i].ModerationFolded {
+			page.Comments[i].Content = ""
+		}
+	}
 	return page, nil
 }
 
@@ -110,17 +116,26 @@ func (r *CommentRepository) listReplies(ctx context.Context, videoID, rootID, cu
 		Where("video_id = ? AND root_comment_id IS NULL AND removed_at IS NULL", videoID).First(&root, rootID).Error; err != nil {
 		return page, err
 	}
-	err := r.db.WithContext(ctx).Table("comments AS reply").
+	query := r.db.WithContext(ctx).Table("comments AS reply").
 		Select(`reply.*, COALESCE(target.username, '') AS reply_to_username,
 			CASE WHEN target.id IS NULL OR target.removed_at IS NOT NULL THEN TRUE ELSE FALSE END AS reply_target_deleted`+commentPresentationSQL("reply"), viewer).
 		Joins("LEFT JOIN accounts AS author ON author.id = reply.author_id").
 		Joins("LEFT JOIN comments AS target ON target.id = reply.reply_to_comment_id").
 		Joins("JOIN comments AS root ON root.id = reply.root_comment_id AND root.removed_at IS NULL").
-		Where("reply.root_comment_id = ? AND reply.removed_at IS NULL AND reply.id > ?", rootID, cursor).
-		Order("reply.id ASC").Limit(replyPageSize + 1).Scan(&page.Comments).Error
+		Where("reply.root_comment_id = ? AND reply.removed_at IS NULL", rootID)
+	if cursor != 0 {
+		query = query.Where(`(reply.moderation_folded > COALESCE((SELECT moderation_folded FROM comments WHERE id = ?), 0)) OR
+ (reply.moderation_folded = COALESCE((SELECT moderation_folded FROM comments WHERE id = ?), 0) AND reply.id > ?)`, cursor, cursor, cursor)
+	}
+	err := query.Order("reply.moderation_folded ASC, reply.id ASC").Limit(replyPageSize + 1).Scan(&page.Comments).Error
 	if len(page.Comments) > replyPageSize {
 		page.Comments = page.Comments[:replyPageSize]
 		page.NextCursor = page.Comments[replyPageSize-1].ID
+	}
+	for i := range page.Comments {
+		if page.Comments[i].ModerationFolded {
+			page.Comments[i].Content = ""
+		}
 	}
 	return page, err
 }

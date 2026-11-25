@@ -120,6 +120,10 @@ services:
     environment:
       <<: *app-environment
       GOMEMLIMIT: 90MiB
+      MODERATION_MODEL: ${MODERATION_MODEL:-}
+      MODERATION_MODEL_BASE_URL: ${MODERATION_MODEL_BASE_URL:-}
+      MODERATION_API_KEY: ${MODERATION_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
     mem_limit: 150m
     stop_grace_period: 30s
     depends_on:

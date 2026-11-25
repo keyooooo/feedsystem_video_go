@@ -1,3 +1,5 @@
+import { FoldedComment } from "./FoldedComment";
+import { ReportComment } from "./ReportComment";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronDown, ChevronUp, Heart, CornerDownRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -377,7 +379,8 @@ function OpenComments({
               </span>
             )}
           </div>
-          <p>{row.content}</p>
+          {row.moderation_folded ? <FoldedComment key={row.id} commentId={row.id} /> : <p>{row.content}</p>}
+          {identity && row.id > 0 && <ReportComment key={identity.account_id + ":" + row.id} commentId={row.id} />}
           <div className={s.commentActions}>
             <time dateTime={row.created_at}>{commentTime(row.created_at)}</time>
             <button

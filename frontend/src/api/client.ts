@@ -199,7 +199,15 @@ export const getJson = <T>(path: string, options?: Options) =>
 
 // Fetch keeps the access token in the Authorization header in both session modes.
 export function openNotificationStream(token: string, signal: AbortSignal) {
-  return fetch(`${base}/notification/stream`, {
+  return openEventStream("/notification/stream", token, signal);
+}
+
+export function openModerationStream(token: string, signal: AbortSignal) {
+  return openEventStream("/moderation/stream", token, signal);
+}
+
+function openEventStream(path: string, token: string, signal: AbortSignal) {
+  return fetch(base + path, {
     headers: { Accept: "text/event-stream", Authorization: `Bearer ${token}` },
     credentials: "same-origin",
     signal,

@@ -3,6 +3,9 @@ package moderation
 import (
 	"errors"
 	"math"
+
+	"feedsystem_video_go/internal/video"
+	"gorm.io/gorm"
 )
 
 const DecisionProtocolVersion = "decision-tool-v1"
@@ -63,4 +66,14 @@ func (intent DecisionIntent) valid(snapshot Snapshot) bool {
 		return false
 	}
 	return true
+}
+
+// recordDecision is called inside the caller's transaction after locking and
+// validating the case and target. The decision and its notifications must commit
+// together for both human and automatic callers.
+func recordDecision(tx *gorm.DB, report Report, target video.Comment, decision *Decision, displayChanged bool) error {
+	if err := tx.Create(decision).Error; err != nil {
+		return err
+	}
+	return notifyDecision(tx, report, target, *decision, displayChanged)
 }

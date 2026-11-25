@@ -29,8 +29,8 @@ func resolveRemovedTarget(tx *gorm.DB, item Case, run ShadowRun) (bool, error) {
 		CaseID: item.ID, CaseVersion: item.Version, TargetVersion: target.ModerationVersion,
 		RequestID: fmt.Sprintf("removed-case-%d", item.ID), ShadowRunID: &run.ID, Action: "target_removed", Reason: "作者已删除被举报评论",
 	}
-	if err := tx.Create(&decision).Error; err != nil {
+	if err := recordDecision(tx, report, target, &decision, false); err != nil {
 		return false, err
 	}
-	return true, notifyDecision(tx, report, target, decision, false)
+	return true, nil
 }

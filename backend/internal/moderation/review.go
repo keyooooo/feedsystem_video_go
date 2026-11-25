@@ -230,10 +230,7 @@ func decide(db *gorm.DB, user uint, input decisionInput) (Decision, error) {
 		if err := tx.Model(&item).Updates(map[string]any{"state": "resolved", "version": item.Version + 1}).Error; err != nil {
 			return err
 		}
-		if err := tx.Create(&decision).Error; err != nil {
-			return err
-		}
-		if err := notifyDecision(tx, report, target, decision, folded != wasFolded); err != nil {
+		if err := recordDecision(tx, report, target, &decision, folded != wasFolded); err != nil {
 			return err
 		}
 		return tx.First(&decision, decision.ID).Error

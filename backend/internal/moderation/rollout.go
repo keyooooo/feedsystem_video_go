@@ -165,8 +165,8 @@ func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (bool, error) {
 		decision.RelatedDecisionID = &applied.ID
 		decision.Reason = applied.Reason
 	}
-	if err := tx.Create(&decision).Error; err != nil {
+	if err := recordDecision(tx, report, target, &decision, changed); err != nil {
 		return false, err
 	}
-	return true, notifyDecision(tx, report, target, decision, changed)
+	return true, nil
 }

@@ -16,3 +16,18 @@ func TestShadowMetricsSeparateRetryTerminalAndHumanWait(t *testing.T) {
 		t.Fatalf("unexpected latency summaries: %+v", summary)
 	}
 }
+
+func TestShadowDispositionMetricsCountLatestAttemptPerCase(t *testing.T) {
+	metrics := summarizeShadow([]shadowMetricRow{
+		{CaseID: 1, ResultState: "resolved", ExecutionOutcome: "applied"},
+		{CaseID: 1, ResultState: "queued", Failure: "deadline_exceeded"},
+		{CaseID: 2, ResultState: "awaiting_review", Failure: "invalid_output"},
+		{CaseID: 3, ResultState: "awaiting_review", ExecutionOutcome: "rollout_missing"},
+		{CaseID: 4, ResultState: "resolved", ExecutionOutcome: "target_removed"},
+	})
+	if metrics.Attempts != 5 || metrics.ObservedCases != 4 || metrics.AutoSettledCases != 1 ||
+		metrics.ReferredCases != 2 || metrics.FailedReferralCases != 1 ||
+		metrics.AutoSettlementRate != 0.25 || metrics.ReferralRate != 0.5 {
+		t.Fatalf("unexpected disposition metrics: %+v", metrics)
+	}
+}

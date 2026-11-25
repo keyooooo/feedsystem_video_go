@@ -28,6 +28,8 @@ func latencySummaryFor(values []int64) latencySummary {
 }
 
 type shadowMetricRow struct {
+	CaseID                                                       uint
+	ExecutionOutcome                                             string
 	QueueMS, EvidenceMS, ModelMS, DurationMS, ReportToDecisionMS int64
 	ModelCalls, Tokens                                           int
 	ResultState, Failure                                         string
@@ -35,24 +37,36 @@ type shadowMetricRow struct {
 }
 
 type shadowMetrics struct {
-	Attempts         int            `json:"attempts"`
-	Terminal         int            `json:"terminal"`
-	AwaitingReview   int            `json:"awaiting_review"`
-	Timeouts         int            `json:"timeouts"`
-	ModelCalls       int            `json:"model_calls"`
-	Tokens           int            `json:"tokens"`
-	Queue            latencySummary `json:"queue"`
-	Evidence         latencySummary `json:"evidence"`
-	Model            latencySummary `json:"model"`
-	Execution        latencySummary `json:"execution"`
-	ReportToDecision latencySummary `json:"report_to_decision"`
-	HumanWait        latencySummary `json:"human_wait"`
+	ObservedCases       int            `json:"observed_cases"`
+	AutoSettledCases    int            `json:"auto_settled_cases"`
+	ReferredCases       int            `json:"referred_cases"`
+	FailedReferralCases int            `json:"failed_referral_cases"`
+	AutoSettlementRate  float64        `json:"auto_settlement_rate"`
+	ReferralRate        float64        `json:"referral_rate"`
+	Attempts            int            `json:"attempts"`
+	Terminal            int            `json:"terminal"`
+	AwaitingReview      int            `json:"awaiting_review"`
+	Timeouts            int            `json:"timeouts"`
+	ModelCalls          int            `json:"model_calls"`
+	Tokens              int            `json:"tokens"`
+	Queue               latencySummary `json:"queue"`
+	Evidence            latencySummary `json:"evidence"`
+	Model               latencySummary `json:"model"`
+	Execution           latencySummary `json:"execution"`
+	ReportToDecision    latencySummary `json:"report_to_decision"`
+	HumanWait           latencySummary `json:"human_wait"`
 }
 
 func summarizeShadow(rows []shadowMetricRow) shadowMetrics {
 	output := shadowMetrics{Attempts: len(rows)}
+	cases := make(map[uint]shadowMetricRow)
 	var queue, evidence, model, execution, endToEnd, wait []int64
 	for _, row := range rows {
+		if row.CaseID != 0 {
+			if _, seen := cases[row.CaseID]; !seen {
+				cases[row.CaseID] = row
+			}
+		}
 		queue = append(queue, row.QueueMS)
 		evidence = append(evidence, row.EvidenceMS)
 		execution = append(execution, row.DurationMS)
@@ -74,6 +88,24 @@ func summarizeShadow(rows []shadowMetricRow) shadowMetrics {
 		if row.HumanWaitMS != nil {
 			wait = append(wait, max(0, *row.HumanWaitMS))
 		}
+	}
+	output.ObservedCases = len(cases)
+	for _, row := range cases {
+		switch row.ResultState {
+		case "resolved":
+			if row.ExecutionOutcome == "applied" {
+				output.AutoSettledCases++
+			}
+		case "awaiting_review":
+			output.ReferredCases++
+			if row.Failure != "" {
+				output.FailedReferralCases++
+			}
+		}
+	}
+	if output.ObservedCases > 0 {
+		output.AutoSettlementRate = float64(output.AutoSettledCases) / float64(output.ObservedCases)
+		output.ReferralRate = float64(output.ReferredCases) / float64(output.ObservedCases)
 	}
 	output.Queue = latencySummaryFor(queue)
 	output.Evidence = latencySummaryFor(evidence)
@@ -101,7 +133,7 @@ func shadowMetricsHandler(db *gorm.DB) gin.HandlerFunc {
 		since := until.Add(-time.Duration(input.Hours) * time.Hour)
 		rows := []shadowMetricRow{}
 		err := db.WithContext(c.Request.Context()).Table("moderation_shadow_runs s").
-			Select(`s.queue_ms,s.evidence_ms,s.model_ms,s.duration_ms,s.report_to_decision_ms,s.model_calls,s.tokens,s.result_state,s.failure,
+			Select(`s.case_id,s.execution_outcome,s.queue_ms,s.evidence_ms,s.model_ms,s.duration_ms,s.report_to_decision_ms,s.model_calls,s.tokens,s.result_state,s.failure,
      CASE WHEN s.result_state = 'awaiting_review' THEN
        TIMESTAMPDIFF(MICROSECOND,s.created_at,(SELECT MIN(d.created_at) FROM moderation_decisions d WHERE d.case_id=s.case_id AND d.reviewer_id<>0 AND d.created_at>=s.created_at)) DIV 1000
      ELSE NULL END AS human_wait_ms`).

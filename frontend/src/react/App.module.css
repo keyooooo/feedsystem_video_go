@@ -406,6 +406,49 @@ button.notificationRow:hover {
   overflow: auto;
   flex: 1;
 }
+.commentConfirmOverlay,
+.commentConfirm {
+  position: absolute;
+  z-index: 1;
+}
+.commentConfirmOverlay {
+  inset: 0;
+  border-radius: inherit;
+  background: #0008;
+}
+.commentConfirm {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(320px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid #495163;
+  border-radius: 14px;
+  box-shadow: 0 12px 36px #0006;
+}
+.commentConfirm h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.commentConfirm p {
+  margin: 8px 0 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.commentConfirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.commentConfirmDelete:not(:disabled) {
+  background: var(--shell-accent);
+  border-color: var(--shell-accent);
+  color: #101114;
+}
 .dialogCount {
   margin-inline-start: 10px;
   color: var(--muted);
@@ -1152,7 +1195,8 @@ button.notificationRow:hover {
     gap: 16px;
   }
   .inlineComments {
-    position: static;
+    position: relative;
+    inset: auto;
     width: auto;
     min-width: 0;
     min-height: 0;

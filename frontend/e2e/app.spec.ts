@@ -815,8 +815,27 @@ test("likes preserve state on failure and comments can retry and delete", async 
   await expect(
     page.locator("article").filter({ hasText: "我的评论" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "删除", exact: true }).click();
-  await page.getByRole("button", { name: "确认删除" }).click();
+  const deleteButton = panel.getByRole("button", { name: "删除", exact: true });
+  await deleteButton.click();
+  const confirm = panel.getByRole("dialog", { name: "删除这条评论？" });
+  await expect(
+    confirm.getByRole("button", { name: "取消", exact: true }),
+  ).toBeFocused();
+  const outer = (await panel.boundingBox())!;
+  const inner = (await confirm.boundingBox())!;
+  expect(inner.width).toBeLessThan(outer.width);
+  expect(
+    Math.abs(inner.x + inner.width / 2 - outer.x - outer.width / 2),
+  ).toBeLessThan(1);
+  expect(
+    Math.abs(inner.y + inner.height / 2 - outer.y - outer.height / 2),
+  ).toBeLessThan(1);
+  await page.keyboard.press("Escape");
+  await expect(confirm).toHaveCount(0);
+  await expect(deleteButton).toBeFocused();
+  await deleteButton.click();
+  await confirm.getByRole("button", { name: "确认删除" }).click();
+  await expect(panel.getByLabel("你的评论")).toBeFocused();
   await expect(page.getByRole("heading", { name: "还没有评论" })).toBeVisible();
 });
 
@@ -926,6 +945,7 @@ test("threaded comments page replies and retain a failed nested reply draft", as
   const second = {
     ...first,
     id: 52,
+    author_id: 1,
     username: "第二位",
     content: "第二条回复",
   };
@@ -939,9 +959,14 @@ test("threaded comments page replies and retain a failed nested reply draft", as
     reply_to_username: "第二位",
   };
   let attempts = 0;
+  let removedRoot = false;
   await page.route("**/api/comment/listThreads", (route) =>
     route.fulfill({
-      json: { comments: [root], next_cursor: 0, total_count: 3 },
+      json: {
+        comments: removedRoot ? [] : [root],
+        next_cursor: 0,
+        total_count: removedRoot ? 0 : 3,
+      },
     }),
   );
   await page.route("**/api/comment/listReplies", (route) => {
@@ -964,8 +989,12 @@ test("threaded comments page replies and retain a failed nested reply draft", as
       : route.fulfill({ json: { message: "ok", comment: nested } });
   });
   await page.route("**/api/comment/delete", (route) => {
-    expect(route.request().postDataJSON()).toEqual({ comment_id: root.id });
-    return route.fulfill({ json: { message: "ok" } });
+    const { comment_id } = route.request().postDataJSON();
+    expect([root.id, second.id]).toContain(comment_id);
+    removedRoot = comment_id === root.id;
+    return route.fulfill({
+      json: { message: "ok", deleted_count: removedRoot ? 3 : 1 },
+    });
   });
   let likeRequests = 0;
   await page.route("**/api/comment/setLike", (route) => {
@@ -1033,16 +1062,23 @@ test("threaded comments page replies and retain a failed nested reply draft", as
   await expect(
     page.getByRole("button", { name: "展开 3 条回复" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "展开 3 条回复" }).click();
   await page
     .locator("article")
-    .filter({ hasText: root.content })
+    .filter({ hasText: second.content })
     .getByRole("button", { name: "删除", exact: true })
     .click();
   await page.getByRole("button", { name: "确认删除" }).click();
-  await expect(page.getByText("该评论已删除")).toBeVisible();
-  await page.getByRole("button", { name: "展开 3 条回复" }).click();
-  await expect(page.getByText("楼中楼", { exact: false })).toBeVisible();
+  await expect(page.getByText(second.content, { exact: true })).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "回复", exact: true }),
-  ).toHaveCount(0);
+    page.getByText("@第二位（评论已删除）", { exact: true }),
+  ).toBeVisible();
+  await rootRow.getByRole("button", { name: "删除", exact: true }).click();
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await expect(thread).toHaveCount(0);
+  await expect(page.getByText("楼中楼", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("还没有评论")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "打开评论" }).first().click();
+  await expect(page.getByText("还没有评论")).toBeVisible();
 });

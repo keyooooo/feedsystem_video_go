@@ -1,6 +1,7 @@
 import { FoldedComment } from "./FoldedComment";
 import { ReportComment } from "./ReportComment";
-import { ChevronDown, ChevronUp, Heart, Reply } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { ChevronDown, ChevronUp, Heart, CornerDownRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import * as comments from "../api/comment";
@@ -104,7 +105,7 @@ function OpenComments({
   const threadRequest = useRef(0);
   const lastThreadLoad = useRef({ after: 0, preserve: false });
   const deletedReplies = useRef(new Set<number>());
-  const deletedRoots = useRef(new Map<number, string>());
+  const deletedRoots = useRef(new Set<number>());
   const [threads, setThreads] = useState<CommentThread[]>([]);
   const [cursor, setCursor] = useState<number>();
   const [loading, setLoading] = useState(true);
@@ -112,6 +113,7 @@ function OpenComments({
   const [replies, setReplies] = useState<Record<number, Replies>>({});
   const [target, setTarget] = useState<ReplyTarget | null>(null);
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
+  const removeTrigger = useRef<HTMLButtonElement>(null);
   const [content, setContent] = useState("");
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
@@ -131,13 +133,10 @@ function OpenComments({
             after || preserve ? old : [],
             page.comments,
             true,
-          ).flatMap((thread) => {
-            const removedAt = deletedRoots.current.get(thread.id);
-            if (!removedAt) return [thread];
-            return thread.reply_count
-              ? [{ ...thread, removed_at: removedAt, content: "" }]
-              : [];
-          }),
+          ).filter(
+            (thread) =>
+              !thread.removed_at && !deletedRoots.current.has(thread.id),
+          ),
         );
         setCursor((old) =>
           preserve && old !== undefined ? old : page.next_cursor,
@@ -176,6 +175,7 @@ function OpenComments({
     }));
     try {
       const page = await comments.listReplies(videoId, rootId, after);
+      if (deletedRoots.current.has(rootId)) return;
       updateReplies(rootId, (old) => ({
         ...old,
         items: mergeComments(old.items, page.comments).filter(
@@ -185,7 +185,8 @@ function OpenComments({
         loading: false,
       }));
     } catch (error) {
-      updateReplies(rootId, (old) => ({ ...old, loading: false, error }));
+      if (!deletedRoots.current.has(rootId))
+        updateReplies(rootId, (old) => ({ ...old, loading: false, error }));
     } finally {
       replyRequests.current.delete(rootId);
     }
@@ -249,20 +250,24 @@ function OpenComments({
     setSending(true);
     setFailure(null);
     try {
-      await comments.remove(deleting.id);
-      setTotal((old) => (old === undefined ? old : Math.max(0, old - 1)));
-      if (deleting.id === deleting.rootId) {
-        const removedAt = new Date().toISOString();
-        deletedRoots.current.set(deleting.id, removedAt);
-        setThreads((old) =>
-          old.flatMap((row) =>
-            row.id !== deleting.id
-              ? [row]
-              : row.reply_count
-                ? [{ ...row, removed_at: removedAt, content: "" }]
-                : [],
-          ),
-        );
+      const response = await comments.remove(deleting.id);
+      const rootRemoved = deleting.id === deleting.rootId;
+      const fallbackCount = rootRemoved
+        ? 1 + (threads.find((row) => row.id === deleting.id)?.reply_count ?? 0)
+        : 1;
+      setTotal((old) =>
+        old === undefined
+          ? old
+          : Math.max(0, old - (response.deleted_count ?? fallbackCount)),
+      );
+      if (rootRemoved) {
+        deletedRoots.current.add(deleting.id);
+        setThreads((old) => old.filter((row) => row.id !== deleting.id));
+        setReplies((old) => {
+          const next = { ...old };
+          delete next[deleting.id];
+          return next;
+        });
       } else {
         deletedReplies.current.add(deleting.id);
         updateReplies(deleting.rootId, (old) => ({
@@ -270,13 +275,11 @@ function OpenComments({
           items: old.items.filter((row) => row.id !== deleting.id),
         }));
         setThreads((old) =>
-          old.flatMap((row) => {
-            if (row.id !== deleting.rootId) return [row];
-            const replyCount = Math.max(0, row.reply_count - 1);
-            return row.removed_at && !replyCount
-              ? []
-              : [{ ...row, reply_count: replyCount }];
-          }),
+          old.map((row) =>
+            row.id === deleting.rootId
+              ? { ...row, reply_count: Math.max(0, row.reply_count - 1) }
+              : row,
+          ),
         );
       }
       if (
@@ -285,6 +288,8 @@ function OpenComments({
       )
         setTarget(null);
       setDeleting(null);
+      if (loading || response.deleted_count === undefined)
+        void loadThreads(0, true);
     } catch (error) {
       setFailure(error);
     } finally {
@@ -348,13 +353,12 @@ function OpenComments({
     const deletedTarget =
       isReply &&
       (row.reply_target_deleted ||
-        deletedReplies.current.has(row.reply_to_comment_id) ||
-        deletedRoots.current.has(row.reply_to_comment_id));
+        deletedReplies.current.has(row.reply_to_comment_id));
     const replyName =
       isReply &&
-      (deletedTarget
-        ? "已删除的评论"
-        : row.reply_to_username && `@${row.reply_to_username}`);
+      (row.reply_to_username
+        ? `@${row.reply_to_username}${deletedTarget ? "（评论已删除）" : ""}`
+        : deletedTarget && "评论已删除");
     return (
       <div className={s.commentRow}>
         <Link
@@ -371,7 +375,7 @@ function OpenComments({
             </Link>
             {replyName && (
               <span className={s.commentTarget}>
-                <Reply size={14} aria-hidden="true" /> {replyName}
+                <CornerDownRight size={14} aria-hidden="true" /> {replyName}
               </span>
             )}
           </div>
@@ -379,18 +383,16 @@ function OpenComments({
           {identity && row.id > 0 && <ReportComment key={identity.account_id + ":" + row.id} commentId={row.id} />}
           <div className={s.commentActions}>
             <time dateTime={row.created_at}>{commentTime(row.created_at)}</time>
-            {!root.removed_at && (
-              <button
-                type="button"
-                className={s.commentAction}
-                aria-label="回复"
-                title="回复"
-                disabled={sending}
-                onClick={() => selectReply(root.id, row)}
-              >
-                <Reply size={18} aria-hidden="true" />
-              </button>
-            )}
+            <button
+              type="button"
+              className={s.commentAction}
+              aria-label="回复"
+              title="回复"
+              disabled={sending}
+              onClick={() => selectReply(root.id, row)}
+            >
+              <CornerDownRight size={18} aria-hidden="true" />
+            </button>
             <button
               type="button"
               className={s.commentAction}
@@ -411,7 +413,8 @@ function OpenComments({
                 type="button"
                 className={s.commentAction}
                 disabled={sending}
-                onClick={() => {
+                onClick={(event) => {
+                  removeTrigger.current = event.currentTarget;
                   setFailure(null);
                   setDeleting({ id: row.id, rootId: root.id });
                 }}
@@ -456,11 +459,7 @@ function OpenComments({
                 data-comment-root={root.id}
               >
                 <article className={s.comment}>
-                  {root.removed_at ? (
-                    <p>该评论已删除</p>
-                  ) : (
-                    renderComment(root, root)
-                  )}
+                  {renderComment(root, root)}
                   {root.reply_count > 0 && !thread?.expanded && (
                     <button
                       type="button"
@@ -565,21 +564,49 @@ function OpenComments({
             {sending ? "发送中…" : target ? "发送回复" : "发送评论"}
           </button>
         </div>
-      </Modal>
-      <Modal
-        title="删除这条评论？"
-        open={deleting !== null}
-        onClose={() => {
-          if (!sending) {
-            setDeleting(null);
-            setFailure(null);
-          }
-        }}
-      >
-        <ErrorBox error={failure} />
-        <button disabled={sending} onClick={() => void remove()}>
-          确认删除
-        </button>
+        <Dialog.Root
+          open={deleting !== null}
+          onOpenChange={(open) => {
+            if (!open && !sending) {
+              setDeleting(null);
+              setFailure(null);
+            }
+          }}
+        >
+          <Dialog.Overlay className={s.commentConfirmOverlay} />
+          <Dialog.Content
+            className={s.commentConfirm}
+            onInteractOutside={(event) => event.preventDefault()}
+            onEscapeKeyDown={(event) => {
+              if (sending) event.preventDefault();
+            }}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              const trigger = removeTrigger.current;
+              if (trigger?.isConnected) trigger.focus();
+              else input.current?.focus();
+            }}
+          >
+            <Dialog.Title>删除这条评论？</Dialog.Title>
+            <Dialog.Description>删除后无法恢复。</Dialog.Description>
+            <ErrorBox error={failure} />
+            <div className={s.commentConfirmActions}>
+              <Dialog.Close asChild>
+                <button type="button" disabled={sending}>
+                  取消
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                className={s.commentConfirmDelete}
+                disabled={sending}
+                onClick={() => void remove()}
+              >
+                {sending ? "删除中…" : "确认删除"}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Root>
       </Modal>
     </>
   );

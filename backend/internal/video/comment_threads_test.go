@@ -60,7 +60,7 @@ func TestCommentThreadsMySQL(t *testing.T) {
 	if _, err := reply(root.ID, videoID+1); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("accepted cross-video reply: %v", err)
 	}
-	if err := service.Delete(ctx, first.ID, 1); err == nil {
+	if _, err := service.Delete(ctx, first.ID, 1); err == nil {
 		t.Fatal("accepted deletion by another account")
 	}
 	page, err := repo.listThreads(ctx, videoID, 0, 0)
@@ -145,7 +145,7 @@ func TestCommentThreadsMySQL(t *testing.T) {
 		_, err := reply(raceRoot.ID, videoID)
 		done <- err
 	}()
-	deleteErr := service.Delete(ctx, raceRoot.ID, 1)
+	_, deleteErr := service.Delete(ctx, raceRoot.ID, 1)
 	replyErr := <-done
 	if deleteErr != nil || (replyErr != nil && !errors.Is(replyErr, gorm.ErrRecordNotFound)) {
 		t.Fatalf("concurrent reply and delete: reply=%v delete=%v", replyErr, deleteErr)
@@ -153,29 +153,55 @@ func TestCommentThreadsMySQL(t *testing.T) {
 	if _, err := reply(raceRoot.ID, videoID); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("deleted thread remained writable: %v", err)
 	}
-	if err := service.Delete(ctx, root.ID, 1); err != nil {
-		t.Fatal(err)
+	if removed, err := service.Delete(ctx, first.ID, 2); err != nil || removed != 1 {
+		t.Fatalf("delete reply: %d, %v", removed, err)
 	}
-	if _, err := repo.setLike(ctx, root.ID, 2, true); !errors.Is(err, gorm.ErrRecordNotFound) {
-		t.Fatalf("accepted a like for a deleted comment: %v", err)
+	replies, err := repo.listReplies(ctx, videoID, root.ID, 0, 0)
+	if err != nil || len(replies.Comments) != 1 || replies.Comments[0].ID != second.ID ||
+		!replies.Comments[0].ReplyTargetDeleted || replies.Comments[0].ReplyToUsername != "reply" {
+		t.Fatalf("unexpected attribution after reply deletion: %#v, %v", replies, err)
 	}
-	if err := service.Delete(ctx, first.ID, 2); err != nil {
-		t.Fatal(err)
+	if removed, err := service.Delete(ctx, root.ID, 1); err != nil || removed != 2 {
+		t.Fatalf("delete root and remaining reply: %d, %v", removed, err)
+	}
+	if removed, err := service.Delete(ctx, root.ID, 1); err != nil || removed != 0 {
+		t.Fatalf("delete already removed root: %d, %v", removed, err)
+	}
+	var stored Comment
+	if err := db.First(&stored, second.ID).Error; err != nil || stored.RemovedAt == nil || stored.Content != "" {
+		t.Fatalf("reply not removed by cascade: %#v, %v", stored, err)
+	}
+	if _, err := repo.setLike(ctx, second.ID, 2, true); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("accepted a like for a cascaded reply: %v", err)
 	}
 	if _, err := reply(second.ID, videoID); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("accepted reply to a deleted thread: %v", err)
 	}
-	replies, err := repo.listReplies(ctx, videoID, root.ID, 0, 0)
-	if err != nil || len(replies.Comments) != 1 || replies.Comments[0].ID != second.ID ||
-		!replies.Comments[0].ReplyTargetDeleted || replies.Comments[0].ReplyToUsername != "" {
-		t.Fatalf("deleted reply target was not masked: %#v, %v", replies, err)
+
+	// Simulate data written before root deletion cascaded.
+	legacyRoot := roots[3]
+	legacyReply, err := reply(legacyRoot.ID, videoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&legacyRoot).Update("removed_at", time.Now()).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.setLike(ctx, legacyReply.ID, 2, true); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("accepted like on legacy orphan reply: %v", err)
+	}
+	for _, id := range []uint{root.ID, raceRoot.ID, legacyRoot.ID} {
+		if _, err := repo.listReplies(ctx, videoID, id, 0, 0); !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Fatalf("deleted thread %d still readable: %v", id, err)
+		}
 	}
 	page, err = repo.listThreads(ctx, videoID, 0, 0)
-	if err != nil || page.Comments[0].ID != root.ID || page.Comments[0].Content != "" || page.Comments[0].ReplyCount != 1 {
-		t.Fatalf("deleted root did not keep its replies: %#v, %v", page, err)
+	wantRoots := len(roots) - 3
+	if err != nil || len(page.Comments) != wantRoots || page.TotalCount == nil || *page.TotalCount != int64(wantRoots+replyPageSize+1) {
+		t.Fatalf("deleted threads or replies remained visible: %#v, %v", page, err)
 	}
 	legacy, err := repo.GetAllComments(ctx, videoID)
-	if err != nil || len(legacy) != threadPageSize-1 {
+	if err != nil || len(legacy) != wantRoots {
 		t.Fatalf("legacy list should return only visible roots: %d, %v", len(legacy), err)
 	}
 }

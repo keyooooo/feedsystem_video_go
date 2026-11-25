@@ -107,7 +107,12 @@ export function Modal({
         className={`${s.dialog} ${s.inlineComments}`}
         aria-label={title}
         onKeyDown={(e) => {
-          if (e.key === "Escape") onClose();
+          if (
+            e.key === "Escape" &&
+            e.target instanceof Element &&
+            !e.target.closest('[role="dialog"]')
+          )
+            onClose();
         }}
       >
         <div className={s.topline}>

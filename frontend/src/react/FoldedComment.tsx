@@ -1,3 +1,4 @@
+import s from "./CommentModeration.module.css";
 import { useState } from "react";
 import { postJson } from "../api/client";
 
@@ -19,7 +20,7 @@ export function FoldedComment({ commentId }: { commentId: number }) {
     }
   }
 
-  return <div>
+  return <div className={s.folded}>
     <p>{content ?? "评论已折叠"}</p>
     <button type="button" aria-expanded={content !== undefined} disabled={busy}
       onClick={() => { if (content === undefined) void reveal(); else setContent(undefined); }}>

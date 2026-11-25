@@ -1,0 +1,32 @@
+.folded {
+  margin-block: 6px;
+  padding: 10px 12px;
+  border: 1px solid #303642;
+  border-radius: 10px;
+  background: #ffffff04;
+}
+.folded p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.folded p:first-child { color: var(--muted); font-size: 14px; }
+.folded button {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+}
+.form { display: grid; gap: 16px; margin-top: 16px; }
+.form label { display: grid; gap: 8px; font-size: 14px; }
+.form select, .form textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #495163;
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.form textarea { min-height: 96px; resize: vertical; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; }
+.status { color: var(--muted); font-size: 13px; }

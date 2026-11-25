@@ -380,7 +380,6 @@ function OpenComments({
             )}
           </div>
           {row.moderation_folded ? <FoldedComment key={row.id} commentId={row.id} /> : <p>{row.content}</p>}
-          {identity && row.id > 0 && <ReportComment key={identity.account_id + ":" + row.id} commentId={row.id} />}
           <div className={s.commentActions}>
             <time dateTime={row.created_at}>{commentTime(row.created_at)}</time>
             <button
@@ -408,6 +407,7 @@ function OpenComments({
               />
               <span>{like.likes_count ?? 0}</span>
             </button>
+          {identity && row.id > 0 && <ReportComment key={identity.account_id + ":" + row.id} commentId={row.id} />}
             {identity?.account_id === row.author_id && (
               <button
                 type="button"

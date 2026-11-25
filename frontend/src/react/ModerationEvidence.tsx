@@ -17,6 +17,7 @@ export type ShadowRun = {
   prompt_version?: string;
   rule_version?: string;
   fold_candidate: boolean;
+  execution_outcome?: string;
   failure?: string;
   duration_ms: number;
   evidence?: { items?: Evidence[]; tool_trace?: {
@@ -48,6 +49,26 @@ const failures: Record<string, string> = {
   model_unavailable: "模型暂不可用", tool_unavailable: "补证暂不可用",
   deadline_exceeded: "审核超时", lease_expired: "执行中断，租约已过期",
   target_removed: "作者已删除评论", target_unavailable: "无法读取评论",
+};
+
+const outcomes: Record<string, string> = {
+  applied: "已自动折叠并结案",
+  target_removed: "评论已删除，工单已结案",
+  retry_scheduled: "等待重试",
+  evaluation_failed: "审核执行异常，已转人工",
+  not_eligible: "未达到自动折叠条件，已转人工",
+  invalid_terminal_intent: "决策意图校验未通过，已转人工",
+  rollout_missing: "自动折叠未启用，已转人工",
+  rollout_ineligible: "当前工单未满足放量条件，已转人工",
+  calibration_pending: "独立复核未达门槛，已转人工",
+  human_override: "保留人工决定，已转人工",
+  target_changed: "目标评论已变更，已转人工",
+  target_evidence_stale: "目标证据已失效，已转人工",
+  parent_unavailable: "回复语境不可用，已转人工",
+  parent_changed: "回复语境已变更，已转人工",
+  target_version_changed: "评论治理状态已变更，已转人工",
+  prior_decision_missing: "无法关联既有处置，已转人工",
+  prior_decision_mismatch: "既有处置不匹配，已转人工",
 };
 
 export function ReviewSuggestions({ caseId }: { caseId: number }) {
@@ -82,8 +103,10 @@ function ModerationEvidence({ runs }: { runs: ShadowRun[] }) {
       const suggestion = run.suggestion;
       const references = new Set(suggestion?.evidence_ids);
       const policy = suggestion?.policy_id;
+      const outcome = run.execution_outcome && outcomes[run.execution_outcome];
       return <details key={run.id}>
         <summary>第 {run.attempt} 次审核 · {run.failure ? "转人工" : "查看建议与证据"}</summary>
+        {outcome && <p><strong>{outcome}</strong></p>}
         {run.failure && <p>{failures[run.failure] ?? run.failure}</p>}
         {suggestion?.action && <p><strong>{actions[suggestion.action] ?? suggestion.action}</strong>
           {policy && <> · {policies[policy] ?? policy}</>}

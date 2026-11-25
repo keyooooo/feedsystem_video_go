@@ -304,3 +304,54 @@ func TestUploadCustomHTTPSOrigin(t *testing.T) {
 		t.Fatal("browser endpoint must be an origin")
 	}
 }
+
+func TestCDNTypeAOfficialVector(t *testing.T) {
+	got := signCDNTypeA("https://example.com", "/video/standard/test.mp4", "aliyuncdnexp1234", 1444435200)
+	want := "https://example.com/video/standard/test.mp4?auth_key=1444435200-0-0-23bf85053008f5c0e791667a313e28ce"
+	if got != want {
+		t.Fatalf("CDN signature does not match official vector: %s", got)
+	}
+}
+
+func TestCDNPlaybackRejectsInvalidKeysAndMethods(t *testing.T) {
+	cloud := alibabaCloud{config: CloudConfig{CDNAuthType: "A", CDNAuthKey: "testkey", PlaybackEndpoint: "https://cdn.example.com"}}
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		signed, err := cloud.Sign(context.Background(), testCoverAsset, method)
+		if err != nil || !strings.HasPrefix(signed, "https://cdn.example.com/"+testCoverAsset+"?auth_key=") {
+			t.Fatalf("CDN playback: %v", err)
+		}
+	}
+	for _, key := range []string{testCoverStaging, "direct-upload/assets/../secret", testCoverAsset + "%2f", testCoverAsset + "?x=1"} {
+		if _, err := cloud.Sign(context.Background(), key, http.MethodGet); err == nil {
+			t.Fatalf("signed invalid key %s", key)
+		}
+	}
+	if _, err := cloud.Sign(context.Background(), testCoverAsset, http.MethodPost); err == nil {
+		t.Fatal("signed POST")
+	}
+}
+
+func TestCDNConfigurationFailsClosed(t *testing.T) {
+	base := CloudConfig{Region: "cn-guangzhou", Bucket: "demo-bucket", UploadRoleARN: "acs:ram::123456789:role/oss-upload", AccessKeyID: "test", AccessKeySecret: "test", ProbePath: "sh", CDNAuthType: "A", CDNAuthKey: "testkey", PlaybackEndpoint: "https://cdn.example.com/"}
+	cloud, err := NewAlibabaCloud(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cloud.(*alibabaCloud).config.PlaybackEndpoint != "https://cdn.example.com" {
+		t.Fatal("origin not normalized")
+	}
+	for _, mutate := range []func(*CloudConfig){
+		func(c *CloudConfig) { c.CDNAuthType = "B" },
+		func(c *CloudConfig) { c.CDNAuthType = "" },
+		func(c *CloudConfig) { c.CDNAuthKey = "" },
+		func(c *CloudConfig) { c.PlaybackEndpoint = "" },
+		func(c *CloudConfig) { c.PlaybackEndpoint = "http://cdn.example.com" },
+		func(c *CloudConfig) { c.PlaybackEndpoint = "https://cdn.example.com/path" },
+	} {
+		cfg := base
+		mutate(&cfg)
+		if _, err := NewAlibabaCloud(cfg); err == nil {
+			t.Fatal("invalid CDN configuration accepted")
+		}
+	}
+}

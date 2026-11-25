@@ -2,6 +2,7 @@ package upload
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,6 +46,7 @@ type Cloud interface {
 }
 
 type CloudConfig struct {
+	CDNAuthType, CDNAuthKey                                     string
 	Region, Bucket, UploadRoleARN, AccessKeyID, AccessKeySecret string
 	UploadEndpoint, PlaybackEndpoint, ProbePath                 string
 }
@@ -87,6 +89,17 @@ func publicOrigin(value string) (string, error) {
 }
 
 func NewAlibabaCloud(cfg CloudConfig) (Cloud, error) {
+	if cfg.CDNAuthType != "" || cfg.CDNAuthKey != "" {
+		if cfg.CDNAuthType != "A" || !regexp.MustCompile(`^[a-zA-Z0-9]{6,128}$`).MatchString(cfg.CDNAuthKey) {
+			return nil, errors.New("CDN requires type A and a valid authentication key")
+		}
+		origin, err := publicOrigin(cfg.PlaybackEndpoint)
+		if err != nil {
+			return nil, errors.New("CDN requires an explicit public HTTPS playback origin")
+		}
+		cfg.PlaybackEndpoint = origin
+	}
+
 	if !regionPattern.MatchString(cfg.Region) || !bucketPattern.MatchString(cfg.Bucket) ||
 		!rolePattern.MatchString(cfg.UploadRoleARN) || cfg.AccessKeyID == "" || cfg.AccessKeySecret == "" {
 		return nil, errors.New("OSS region, bucket, upload role ARN and server access credentials are required")
@@ -310,6 +323,12 @@ func (c *alibabaCloud) Sign(ctx context.Context, key, method string) (string, er
 	default:
 		return "", errors.New("invalid playback method")
 	}
+	if c.config.CDNAuthType == "A" {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return signCDNTypeA(c.config.PlaybackEndpoint, "/"+key, c.config.CDNAuthKey, time.Now().Unix()), nil
+	}
 	result, err := c.playback.Presign(ctx, request, oss.PresignExpires(15*time.Minute))
 	if err != nil {
 		return "", redactOSSError("sign playback", err)
@@ -330,4 +349,11 @@ func (c *alibabaCloud) Delete(ctx context.Context, key string) error {
 		return redactOSSError("delete object", err)
 	}
 	return nil
+}
+
+// Type A timestamps represent issuance time; the CDN console supplies the TTL.
+func signCDNTypeA(origin, uri, key string, timestamp int64) string {
+	token := fmt.Sprintf("%d-0-0", timestamp)
+	digest := md5.Sum([]byte(uri + "-" + token + "-" + key))
+	return fmt.Sprintf("%s%s?auth_key=%s-%x", origin, uri, token, digest)
 }

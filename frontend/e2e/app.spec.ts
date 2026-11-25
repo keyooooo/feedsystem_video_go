@@ -1082,3 +1082,59 @@ test("threaded comments page replies and retain a failed nested reply draft", as
   await page.getByRole("button", { name: "打开评论" }).first().click();
   await expect(page.getByText("还没有评论")).toBeVisible();
 });
+
+test("folded comments hide complete rows behind one bottom disclosure", async ({ page }) => {
+  test.setTimeout(60000);
+  const time = "2026-11-25T08:00:00Z";
+  const row = (id: number, folded: boolean) => ({
+    id, video_id: 1, author_id: id, username: `审核样例作者${id}`,
+    content: folded ? "" : "正常评论保留展示", created_at: time,
+    reply_count: id === 50 ? 2 : 0, moderation_folded: folded,
+  });
+  let reveals: number[] = [];
+  await page.route("**/api/comment/listThreads", route => route.fulfill({ json: {
+    comments: [row(92, true), row(50, false), row(91, true)], next_cursor: 0, total_count: 5,
+  } }));
+  await page.route("**/api/comment/listReplies", route => route.fulfill({ json: {
+    comments: [
+      { ...row(52, true), root_comment_id: 50, reply_to_comment_id: 50, reply_to_username: "审核样例作者50" },
+      { ...row(53, false), content: "正常回复", root_comment_id: 50, reply_to_comment_id: 50, reply_to_username: "审核样例作者50" },
+    ], next_cursor: 0,
+  } }));
+  await page.route("**/api/comment/reveal", route => {
+    const id = route.request().postDataJSON().comment_id as number;
+    reveals.push(id);
+    return route.fulfill({ json: { content: `折叠正文${id}` } });
+  });
+  for (const width of [360, 390, 768, 1440]) {
+    reveals = [];
+    await page.setViewportSize({ width, height: width >= 1200 ? 900 : 844 });
+    await page.goto("/");
+    await page.getByRole("button", { name: "打开评论" }).first().click();
+    await expect(page.getByText("正常评论保留展示")).toBeVisible();
+    const toggle = page.getByRole("button", { name: "已折叠评论", exact: true });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByText("审核样例作者92", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("审核样例作者91", { exact: true })).toHaveCount(0);
+    expect(reveals).toEqual([]);
+    await page.getByRole("button", { name: /展开 2 条回复/ }).click();
+    await expect(page.getByText("正常回复", { exact: true })).toBeVisible();
+    await expect(page.getByText("审核样例作者52", { exact: true })).toHaveCount(0);
+    expect(reveals).toEqual([]);
+    const region = page.getByRole("region", { name: "已折叠评论" });
+    const ordinary = page.getByText("正常评论保留展示");
+    expect(await ordinary.evaluate((element, group) => !!(element.compareDocumentPosition(group as Node) & Node.DOCUMENT_POSITION_FOLLOWING), await region.elementHandle())).toBe(true);
+    await page.screenshot({ path: `/tmp/folded-comments-${width}-closed.png` });
+    await toggle.click();
+    await expect(region.getByText("折叠正文92", { exact: true })).toBeVisible();
+    await expect(region.getByText("折叠正文91", { exact: true })).toBeVisible();
+    await expect(region.getByText("折叠正文52", { exact: true })).toBeVisible();
+    expect([...new Set(reveals)].sort()).toEqual([52, 91, 92]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `/tmp/folded-comments-${width}-open.png` });
+    await toggle.focus();
+    await toggle.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(region.getByText("审核样例作者92", { exact: true })).toHaveCount(0);
+  }
+});

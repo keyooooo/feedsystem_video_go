@@ -3,7 +3,7 @@ import { FoldedComment } from "./FoldedComment";
 import { ReportComment } from "./ReportComment";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronDown, ChevronUp, Heart, CornerDownRight } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import * as comments from "../api/comment";
 import type {
@@ -107,6 +107,8 @@ function OpenComments({
   const lastThreadLoad = useRef({ after: 0, preserve: false });
   const deletedReplies = useRef(new Set<number>());
   const deletedRoots = useRef(new Set<number>());
+  const [foldedExpanded, setFoldedExpanded] = useState(false);
+  const foldedRegionId = useId();
   const [threads, setThreads] = useState<CommentThread[]>([]);
   const [cursor, setCursor] = useState<number>();
   const [loading, setLoading] = useState(true);
@@ -372,18 +374,27 @@ function OpenComments({
         <div className={s.commentCopy}>
           <div className={moderation.commentHeading}>
             <div className={s.commentByline}>
-            <Link to={`/u/${row.author_id}`}>
-              <strong>{row.username}</strong>
-            </Link>
-            {replyName && (
-              <span className={s.commentTarget}>
-                <CornerDownRight size={14} aria-hidden="true" /> {replyName}
-              </span>
+              <Link to={`/u/${row.author_id}`}>
+                <strong>{row.username}</strong>
+              </Link>
+              {replyName && (
+                <span className={s.commentTarget}>
+                  <CornerDownRight size={14} aria-hidden="true" /> {replyName}
+                </span>
+              )}
+            </div>
+            {identity && row.id > 0 && (
+              <ReportComment
+                key={identity.account_id + ":" + row.id}
+                commentId={row.id}
+              />
             )}
           </div>
-          {identity && row.id > 0 && <ReportComment key={identity.account_id + ":" + row.id} commentId={row.id} />}
-          </div>
-          {row.moderation_folded ? <FoldedComment key={row.id} commentId={row.id} /> : <p>{row.content}</p>}
+          {row.moderation_folded ? (
+            <FoldedComment key={row.id} commentId={row.id} />
+          ) : (
+            <p>{row.content}</p>
+          )}
           <div className={s.commentActions}>
             <time dateTime={row.created_at}>{commentTime(row.created_at)}</time>
             <button
@@ -431,6 +442,83 @@ function OpenComments({
     );
   }
 
+  function renderThread(root: CommentThread) {
+    const thread = replies[root.id];
+    return (
+      <section
+        key={root.id}
+        className={s.commentThread}
+        data-comment-root={root.id}
+      >
+        <article className={s.comment}>
+          {renderComment(root, root)}
+          {root.reply_count > 0 && !thread?.expanded && (
+            <button
+              type="button"
+              className={s.commentFold}
+              aria-expanded={false}
+              onClick={() => {
+                if (thread?.cursor !== undefined)
+                  updateReplies(root.id, (old) => ({
+                    ...old,
+                    expanded: true,
+                  }));
+                else void loadReplies(root.id);
+              }}
+            >
+              展开 {root.reply_count} 条回复{" "}
+              <ChevronDown size={16} aria-hidden="true" />
+            </button>
+          )}
+        </article>
+        {thread?.expanded && root.reply_count > 0 && (
+          <div className={s.commentReplies}>
+            {thread.items
+              .filter(
+                (reply) => root.moderation_folded || !reply.moderation_folded,
+              )
+              .map((reply) => (
+                <article key={reply.id} className={s.comment}>
+                  {renderComment(root, reply)}
+                </article>
+              ))}
+            {thread.loading && <p role="status">正在加载回复…</p>}
+            <ErrorBox
+              error={thread.error}
+              retry={() => void loadReplies(root.id, thread.cursor)}
+            />
+            {!!thread.cursor && !thread.error && (
+              <button
+                type="button"
+                disabled={thread.loading}
+                onClick={() => void loadReplies(root.id, thread.cursor)}
+              >
+                加载更多回复
+              </button>
+            )}
+            <button
+              type="button"
+              className={s.commentFold}
+              aria-expanded
+              onClick={() => collapse(root.id)}
+            >
+              收起回复 <ChevronUp size={16} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  const foldedRoots = threads.filter((root) => root.moderation_folded);
+  const foldedReplies = threads
+    .filter((root) => !root.moderation_folded)
+    .flatMap((root) =>
+      (replies[root.id]?.items ?? [])
+        .filter((reply) => reply.moderation_folded)
+        .map((reply) => ({ root, reply })),
+    );
+
   return (
     <>
       <Modal
@@ -453,69 +541,7 @@ function OpenComments({
               <p>来聊聊你的想法吧。</p>
             </Empty>
           )}
-          {threads.map((root) => {
-            const thread = replies[root.id];
-            return (
-              <section
-                key={root.id}
-                className={s.commentThread}
-                data-comment-root={root.id}
-              >
-                <article className={s.comment}>
-                  {renderComment(root, root)}
-                  {root.reply_count > 0 && !thread?.expanded && (
-                    <button
-                      type="button"
-                      className={s.commentFold}
-                      aria-expanded={false}
-                      onClick={() => {
-                        if (thread?.cursor !== undefined)
-                          updateReplies(root.id, (old) => ({
-                            ...old,
-                            expanded: true,
-                          }));
-                        else void loadReplies(root.id);
-                      }}
-                    >
-                      展开 {root.reply_count} 条回复{" "}
-                      <ChevronDown size={16} aria-hidden="true" />
-                    </button>
-                  )}
-                </article>
-                {thread?.expanded && root.reply_count > 0 && (
-                  <div className={s.commentReplies}>
-                    {thread.items.map((reply) => (
-                      <article key={reply.id} className={s.comment}>
-                        {renderComment(root, reply)}
-                      </article>
-                    ))}
-                    {thread.loading && <p role="status">正在加载回复…</p>}
-                    <ErrorBox
-                      error={thread.error}
-                      retry={() => void loadReplies(root.id, thread.cursor)}
-                    />
-                    {!!thread.cursor && !thread.error && (
-                      <button
-                        type="button"
-                        disabled={thread.loading}
-                        onClick={() => void loadReplies(root.id, thread.cursor)}
-                      >
-                        加载更多回复
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className={s.commentFold}
-                      aria-expanded
-                      onClick={() => collapse(root.id)}
-                    >
-                      收起回复 <ChevronUp size={16} aria-hidden="true" />
-                    </button>
-                  </div>
-                )}
-              </section>
-            );
-          })}
+          {threads.filter((root) => !root.moderation_folded).map(renderThread)}
           <ErrorBox
             error={listError}
             retry={() => {
@@ -531,6 +557,34 @@ function OpenComments({
             >
               加载更多评论
             </button>
+          )}
+          {(foldedRoots.length > 0 || foldedReplies.length > 0) && (
+            <section className={moderation.foldedGroup} aria-label="已折叠评论">
+              <button
+                type="button"
+                className={moderation.foldedToggle}
+                aria-expanded={foldedExpanded}
+                aria-controls={foldedRegionId}
+                onClick={() => setFoldedExpanded((open) => !open)}
+              >
+                已折叠评论
+                {foldedExpanded ? (
+                  <ChevronUp size={16} aria-hidden="true" />
+                ) : (
+                  <ChevronDown size={16} aria-hidden="true" />
+                )}
+              </button>
+              {foldedExpanded && (
+                <div id={foldedRegionId}>
+                  {foldedRoots.map(renderThread)}
+                  {foldedReplies.map(({ root, reply }) => (
+                    <article key={reply.id} className={s.comment}>
+                      {renderComment(root, reply)}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
           )}
         </div>
         {!deleting && <ErrorBox error={failure} />}

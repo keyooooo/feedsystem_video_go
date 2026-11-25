@@ -53,6 +53,8 @@ const failures: Record<string, string> = {
 
 const outcomes: Record<string, string> = {
   applied: "已自动折叠并结案",
+  shadow_only: "当前为影子模式，仅记录建议，已转人工",
+  version_mismatch: "决策版本不匹配，已转人工",
   target_removed: "评论已删除，工单已结案",
   retry_scheduled: "等待重试",
   evaluation_failed: "审核执行异常，已转人工",

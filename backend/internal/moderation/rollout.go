@@ -54,36 +54,48 @@ func (r Rollout) allows(run ShadowRun, commentID uint) bool {
 		r.InjectionCases >= 20 && r.InjectionBlocked == r.InjectionCases
 }
 
-func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (string, error) {
+func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun, modes ...AutoFoldMode) (string, error) {
+	mode := autoFoldMode(modes)
+	if mode == AutoFoldShadow {
+		return "shadow_only", nil
+	}
 	if !run.FoldCandidate || run.Failure != "" {
 		return "not_eligible", nil
 	}
 	var snapshot Snapshot
 	var suggestion Suggestion
-	if json.Unmarshal(run.Evidence, &snapshot) != nil || json.Unmarshal(run.Suggestion, &suggestion) != nil || !authorizedFoldIntent(run, snapshot, suggestion) || !FoldCandidate(snapshot, suggestion) {
+	if json.Unmarshal(run.Evidence, &snapshot) != nil || json.Unmarshal(run.Suggestion, &suggestion) != nil || !authorizedFoldIntent(run, snapshot, suggestion) || !ThresholdFoldCandidate(snapshot, suggestion) {
 		return "invalid_terminal_intent", nil
 	}
-	var rollout Rollout
-	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&rollout, "policy_id = ?", "SPAM_PROMO").Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return "rollout_missing", nil
-	}
-	if err != nil {
-		return "", err
+	if run.Model == "" || run.PolicyVersion != policyVersion || run.PromptVersion != promptVersion || run.RuleVersion != CandidateRuleVersion {
+		return "version_mismatch", nil
 	}
 	var report Report
 	if err := tx.First(&report, item.ReportID).Error; err != nil {
 		return "", err
 	}
-	if !rollout.allows(run, report.CommentID) {
-		return "rollout_ineligible", nil
-	}
-	counts, err := countCalibration(tx, run.Model)
-	if err != nil {
-		return "", err
-	}
-	if counts.Confirmed < 30 || counts.Rejected != 0 {
-		return "calibration_pending", nil
+	if mode == AutoFoldApproved {
+		if !FoldCandidate(snapshot, suggestion) {
+			return "not_eligible", nil
+		}
+		var rollout Rollout
+		err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&rollout, "policy_id = ?", "SPAM_PROMO").Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "rollout_missing", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if !rollout.allows(run, report.CommentID) {
+			return "rollout_ineligible", nil
+		}
+		counts, err := countCalibration(tx, run.Model)
+		if err != nil {
+			return "", err
+		}
+		if counts.Confirmed < 30 || counts.Rejected != 0 {
+			return "calibration_pending", nil
+		}
 	}
 	var target video.Comment
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&target, report.CommentID).Error; err != nil {
@@ -94,7 +106,7 @@ func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (string, error) {
 		return "target_changed", nil
 	}
 	for _, evidence := range snapshot.Items {
-		if evidence.ID == "target:1" && (evidence.Text != evidenceText(target.Content) || !hasOriginalChannel(target.Content) ||
+		if evidence.ID == "target:1" && (evidence.Text != evidenceText(target.Content) || (mode == AutoFoldApproved && !hasOriginalChannel(target.Content)) ||
 			evidence.CollectedAt.IsZero() || time.Since(evidence.CollectedAt) > shadowLease || time.Until(evidence.CollectedAt) > time.Second) {
 			return "target_evidence_stale", nil
 		}
@@ -133,7 +145,7 @@ func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (string, error) {
 	decision := Decision{
 		CaseID: item.ID, CaseVersion: item.Version, TargetVersion: target.ModerationVersion,
 		RequestID: fmt.Sprintf("auto-case-%d", item.ID), ShadowRunID: &run.ID,
-		PolicyID: "SPAM_PROMO", Action: "fold", Reason: "评论包含主动营销招揽和导流渠道",
+		PolicyID: "SPAM_PROMO", Action: "fold", Reason: suggestion.Reason,
 	}
 	changed := !target.ModerationFolded
 	if changed {

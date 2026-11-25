@@ -17,6 +17,12 @@ func startModerationShadow(ctx context.Context, db *gorm.DB, cache *rediscache.C
 	if modelID == "" {
 		return
 	}
+	mode, err := moderation.ParseAutoFoldMode(os.Getenv("MODERATION_AUTO_FOLD_MODE"))
+	if err != nil {
+		log.Printf("Moderation disabled: %v", err)
+		return
+	}
+	log.Printf("Moderation execution mode: %s; fold confidence threshold: %.2f", mode, moderation.CandidateConfidence)
 	chat, modelID, err := moderation.ModelFromEnv(ctx)
 	if err != nil {
 		log.Printf("Moderation shadow disabled: %v", err)
@@ -25,7 +31,7 @@ func startModerationShadow(ctx context.Context, db *gorm.DB, cache *rediscache.C
 	evaluator := moderation.NewShadowEvaluator(db, chat, modelID)
 	go func() {
 		for ctx.Err() == nil {
-			err := moderation.RunShadow(ctx, db, evaluator, cache)
+			err := moderation.RunShadow(ctx, db, evaluator, cache, mode)
 			if ctx.Err() != nil {
 				return
 			}

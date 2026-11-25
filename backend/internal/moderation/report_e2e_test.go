@@ -702,7 +702,7 @@ func TestReportEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	request = fmt.Sprintf(`{"comment_id":%d,"reason_code":"spam_promo","request_id":"paused-rollout"}`, pausedTarget.ID)
-	response = post("/report/create", request, reporter, 202)
+	response = post("/report/create", request, token("paused-reporter"), 202)
 	var pausedReport struct {
 		ID uint `json:"report_id"`
 	}

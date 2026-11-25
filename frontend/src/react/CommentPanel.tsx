@@ -1,3 +1,4 @@
+import moderation from "./CommentModeration.module.css";
 import { FoldedComment } from "./FoldedComment";
 import { ReportComment } from "./ReportComment";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -369,7 +370,8 @@ function OpenComments({
           <Avatar name={row.username} url={row.avatar_url} />
         </Link>
         <div className={s.commentCopy}>
-          <div className={s.commentByline}>
+          <div className={moderation.commentHeading}>
+            <div className={s.commentByline}>
             <Link to={`/u/${row.author_id}`}>
               <strong>{row.username}</strong>
             </Link>
@@ -378,6 +380,8 @@ function OpenComments({
                 <CornerDownRight size={14} aria-hidden="true" /> {replyName}
               </span>
             )}
+          </div>
+          {identity && row.id > 0 && <ReportComment key={identity.account_id + ":" + row.id} commentId={row.id} />}
           </div>
           {row.moderation_folded ? <FoldedComment key={row.id} commentId={row.id} /> : <p>{row.content}</p>}
           <div className={s.commentActions}>
@@ -407,7 +411,6 @@ function OpenComments({
               />
               <span>{like.likes_count ?? 0}</span>
             </button>
-          {identity && row.id > 0 && <ReportComment key={identity.account_id + ":" + row.id} commentId={row.id} />}
             {identity?.account_id === row.author_id && (
               <button
                 type="button"

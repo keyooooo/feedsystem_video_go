@@ -1,12 +1,22 @@
 import { Modal } from "./ui";
 import s from "./CommentModeration.module.css";
-import app from "./App.module.css";
-import { useState } from "react";
+import { MoreHorizontal } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { postJson } from "../api/client";
 
 export function ReportComment({ commentId }: { commentId: number }) {
   const [open, setOpen] = useState(false);
+  const menu = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !menu.current?.contains(event.target) && menu.current) {
+        menu.current.open = false;
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, []);
   const [reason, setReason] = useState("spam_promo");
   const [detail, setDetail] = useState("");
   const [key, setKey] = useState("");
@@ -26,8 +36,23 @@ export function ReportComment({ commentId }: { commentId: number }) {
     finally { setBusy(false); }
   }
   return <>
-    {reportId ? <Link className={app.commentAction} to={`/reports/${reportId}`}>查看举报</Link> :
-      <button className={app.commentAction} type="button" onClick={() => { setKey(crypto.randomUUID()); setOpen(true); }}>举报</button>}
+    <details ref={menu} className={s.menu} onKeyDown={event => {
+      if (event.key === "Escape" && menu.current?.open) {
+        event.preventDefault();
+        event.stopPropagation();
+        menu.current.open = false;
+        menu.current.querySelector("summary")?.focus();
+      }
+    }}>
+      <summary aria-label="评论更多操作" title="更多操作"><MoreHorizontal size={20} aria-hidden="true" /></summary>
+      <div className={s.menuPanel}>
+        {reportId ? <Link to={`/reports/${reportId}`}>查看举报</Link> :
+          <button type="button" onClick={() => {
+            if (menu.current) menu.current.open = false;
+            setKey(crypto.randomUUID()); setOpen(true);
+          }}>举报评论</button>}
+      </div>
+    </details>
     <Modal title="举报评论" open={open} onClose={() => { if (!busy) setOpen(false); }}>
       <form className={s.form} onSubmit={e => { e.preventDefault(); void submit(); }}>
         <label>举报原因

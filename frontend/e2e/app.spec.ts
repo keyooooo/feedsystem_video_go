@@ -29,13 +29,15 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/static/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     const video = pathname.endsWith(".mp4");
-    const fixture = pathname.endsWith("/square.mp4")
-      ? "square.mp4"
-      : pathname.endsWith("/landscape.mp4")
-        ? "landscape.mp4"
-        : video
-          ? "clip.mp4"
-          : "poster.png";
+    const fixture = pathname.endsWith("/seek.mp4")
+      ? "seek.mp4"
+      : pathname.endsWith("/square.mp4")
+        ? "square.mp4"
+        : pathname.endsWith("/landscape.mp4")
+          ? "landscape.mp4"
+          : video
+            ? "clip.mp4"
+            : "poster.png";
     const bytes = readFileSync(
       new URL(`./fixtures/${fixture}`, import.meta.url),
     );
@@ -479,16 +481,39 @@ test("sharing without clipboard permissions exposes the actual video permalink",
 test("muting preserves the playhead and a user-paused video", async ({
   page,
 }) => {
+  // Finish pausing/seeking before testing the mute control. The short feed
+  // fixture can reach a pending loop transition on a busy WebKit runner.
+  await page.route("**/api/feed/listLatest", (route) =>
+    route.fulfill({
+      json: {
+        video_list: [{ ...items[0], play_url: "/static/seek.mp4" }],
+        has_more: false,
+        next_time: 1,
+      },
+    }),
+  );
   await page.goto("/");
   const video = page.locator("video").first();
-  await expect(video).toHaveAttribute("src", "/static/fixture.mp4");
+  await expect(video).toHaveAttribute("src", "/static/seek.mp4");
   await expect
     .poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
     .toBeGreaterThan(0.1);
-  const pausedAt = await video.evaluate((v: HTMLVideoElement) => {
-    v.pause();
+  const pausedAt = await video.evaluate(async (v: HTMLVideoElement) => {
+    if (!v.paused) {
+      const paused = new Promise<void>((resolve) =>
+        v.addEventListener("pause", () => resolve(), { once: true }),
+      );
+      v.pause();
+      await paused;
+    }
+    const settled = new Promise<void>((resolve) =>
+      v.addEventListener("seeked", () => resolve(), { once: true }),
+    );
+    v.currentTime = 1;
+    await settled;
     return v.currentTime;
   });
+  expect(pausedAt).toBeCloseTo(1, 1);
   await page.getByRole("button", { name: "取消静音", exact: true }).click();
   expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
   expect(

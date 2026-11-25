@@ -1,4 +1,5 @@
-import { Modal } from "./ui";
+import * as Dialog from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
 import s from "./CommentModeration.module.css";
 import { MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -7,6 +8,7 @@ import { postJson } from "../api/client";
 
 export function ReportComment({ commentId }: { commentId: number }) {
   const [open, setOpen] = useState(false);
+  const [container, setContainer] = useState<HTMLElement | null>(null);
   const menu = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
@@ -49,11 +51,22 @@ export function ReportComment({ commentId }: { commentId: number }) {
         {reportId ? <Link to={`/reports/${reportId}`}>查看举报</Link> :
           <button type="button" onClick={() => {
             if (menu.current) menu.current.open = false;
+            setContainer(menu.current?.closest<HTMLElement>("[data-inline-comments], [role=dialog]") ?? null);
             setKey(crypto.randomUUID()); setOpen(true);
           }}>举报评论</button>}
       </div>
     </details>
-    <Modal title="举报评论" open={open} onClose={() => { if (!busy) setOpen(false); }}>
+    <Dialog.Root open={open} onOpenChange={value => { if (!busy) setOpen(value); }}>
+      <Dialog.Portal container={container}>
+        <Dialog.Overlay className={s.reportOverlay} />
+        <Dialog.Content className={s.reportDialog} aria-describedby={undefined} onCloseAutoFocus={event => {
+          event.preventDefault();
+          menu.current?.querySelector("summary")?.focus();
+        }}>
+          <div className={s.reportHeader}>
+            <Dialog.Title>举报评论</Dialog.Title>
+            <Dialog.Close asChild><button type="button" disabled={busy} aria-label="关闭举报"><X size={20} /></button></Dialog.Close>
+          </div>
       <form className={s.form} onSubmit={e => { e.preventDefault(); void submit(); }}>
         <label>举报原因
           <select value={reason} disabled={busy} onChange={e => { setReason(e.target.value); setKey(crypto.randomUUID()); }}>
@@ -69,7 +82,9 @@ export function ReportComment({ commentId }: { commentId: number }) {
         </div>
         {message && <span role="status" className={s.status}>{message}</span>}
       </form>
-    </Modal>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
     {!open && message && <span role="status" className={s.status}>{message}</span>}
   </>;
 }

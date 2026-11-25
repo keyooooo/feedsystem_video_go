@@ -51,3 +51,13 @@
   border: 0; border-radius: 8px; background: transparent; color: var(--text);
 }
 .menuPanel button:hover, .menuPanel a:hover { background: #ffffff0a; }
+.reportOverlay { position: absolute; inset: 0; z-index: 20; border-radius: inherit; background: #0007; }
+.reportDialog {
+  position: absolute; top: 50%; left: 50%; z-index: 21; transform: translate(-50%, -50%);
+  width: min(420px, calc(100% - 32px)); max-height: calc(100% - 32px);
+  overflow: auto; padding: 20px; border: 1px solid #495163;
+  border-radius: 16px; background: var(--panel); box-shadow: 0 16px 48px #0006;
+}
+.reportHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.reportHeader h2 { margin: 0; font-size: 20px; }
+.reportHeader button { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; }

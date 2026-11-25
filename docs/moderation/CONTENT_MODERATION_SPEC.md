@@ -20,9 +20,9 @@
 | Agent 与模型 | Eino `compose.Graph`、支持工具调用的 ChatModel、`ToolsNode` | 用有回边的图表达补证，显式限制轮数。真实模型使用火山方舟 OpenAI 兼容接口，模型为 `deepseek-v4-1-flash-economy-261017`。在 Worker 注入模型，CI 注入脚本化模型。 |
 | 限流与实时刷新 | 现有 Redis、React/TypeScript、SSE | Redis 限制账号举报频率，并向各 API 实例广播工单变动。SSE 唤醒审核台重新拉列表。审核决定走带身份和版本的 HTTP 请求。 |
 
-仓库里已有的 Outbox 只保存视频发布信息，轮询器固定投递 Timeline。审核域新增自己的事件记录与投递器。根评论走 MQ 时发布响应也没有持久化评论 ID，所以举报入口只绑定从评论列表取得的真实 ID。[视频 Outbox](backend/internal/worker/outboxworker.go) · [评论发布](backend/internal/video/comment_handler.go)
+仓库里已有的 Outbox 只保存视频发布信息，轮询器固定投递 Timeline。审核域新增自己的事件记录与投递器。根评论走 MQ 时发布响应也没有持久化评论 ID，所以举报入口只绑定从评论列表取得的真实 ID。[视频 Outbox](../../backend/internal/worker/outboxworker.go) · [评论发布](../../backend/internal/video/comment_handler.go)
 
-当前通知 Hub 保存在 API 进程内，前端已有断线重连和快照刷新。审核员事件需要单独授权和跨实例广播。新增流也要纳入长连接会话复查与 Nginx 的无缓冲配置，当前代码分别对原通知路径做了专门处理。[通知 Hub](backend/internal/worker/ssehub.go) · [鉴权](backend/internal/middleware/jwt/jwt.go) · [前端重连](frontend/src/react/useNotificationStream.ts) · [代理](frontend/nginx-routes.conf)
+当前通知 Hub 保存在 API 进程内，前端已有断线重连和快照刷新。审核员事件需要单独授权和跨实例广播。新增流也要纳入长连接会话复查与 Nginx 的无缓冲配置，当前代码分别对原通知路径做了专门处理。[通知 Hub](../../backend/internal/worker/ssehub.go) · [鉴权](../../backend/internal/middleware/jwt/jwt.go) · [前端重连](frontend/src/react/useNotificationStream.ts) · [代理](frontend/nginx-routes.conf)
 
 Eino 的工具节点负责执行已绑定的函数，兼容接口的工具调用协议允许把工具结果返回给同一轮对话。实现阶段在 `go.mod` 固定 Eino 和 provider 模块版本，用一条真实补证用例验证所选模型能完成两轮交互，再冻结模型标识用于评测。[Eino 图编排](https://pkg.go.dev/github.com/cloudwego/eino/compose) · [ToolsNode](https://www.cloudwego.io/docs/eino/core_modules/components/tools_node_guide/) · [千问适配器](https://github.com/cloudwego/eino-ext/tree/main/components/model/qwen)
 
@@ -74,7 +74,7 @@ Worker 先用举报记录定位目标评论，读取正文、作者 ID、视频 
 - **影子运行。** Agent 记录建议和“若启用自动化会采取的动作”。所有可审工单交给人工，只有人工提交会改变展示状态。用于校准的工单先提交人工决定再揭示模型建议。已查看建议后提交的决定仍可生效，但不计为独立复核。
 - **有限自动化。** 第一条建议启用的条款是垃圾营销 `SPAM_PROMO`。目标原文须同时有主动招揽和可核对的联系方式或导流渠道，Go 用版本化模式复核这两项。引用、劝阻、讨论或证据冲突进入人工队列。只接受命中该条款、引用有效、必要语境齐全、超过该版本校准阈值的 `suggest_fold`。其余类别（如人身攻击）允许生成建议，均由人工终审。模型自报置信度仅参与筛选。
 - **并发裁决。** 举报按举报 ID 建单，处置按评论 ID 串行化。提交事务锁定目标评论并校验正文摘要、删除状态、目标治理版本、工单版本及执行租约。已生效的相同动作只关联已有结果。人工维持或恢复后，同一正文的后续自动建议转人工。审核员看到过期版本返回 409 并刷新。MySQL 行锁、版本和唯一键足以承担这项正确性要求，首版 Redis 只参与限流和广播。
-- **折叠与恢复。** 为评论增加独立的治理状态和版本，旧数据默认正常。现有作者删除会清空正文，人工恢复仅撤销治理折叠。主评、回复和旧 `/comment/listAll` 在默认响应中均遮蔽折叠正文，保留 ID、回复关系与计数，使用显式展开接口重新检查可见性。旧客户端收到空正文。新客户端显示“评论已折叠 · 展开”。折叠不改变有效回复数。作者删除沿用原有计数及占位逻辑。[删除与旧列表](backend/internal/video/comment_repo.go) · [主评与回复查询](backend/internal/video/comment_threads.go)
+- **折叠与恢复。** 为评论增加独立的治理状态和版本，旧数据默认正常。现有作者删除会清空正文，人工恢复仅撤销治理折叠。主评、回复和旧 `/comment/listAll` 在默认响应中均遮蔽折叠正文，保留 ID、回复关系与计数，使用显式展开接口重新检查可见性。旧客户端收到空正文。新客户端显示“评论已折叠 · 展开”。折叠不改变有效回复数。作者删除沿用原有计数及占位逻辑。[删除与旧列表](../../backend/internal/video/comment_repo.go) · [主评与回复查询](../../backend/internal/video/comment_threads.go)
 
 ## 6. 数据、接口与审核台
 

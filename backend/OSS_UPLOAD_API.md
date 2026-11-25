@@ -91,3 +91,9 @@ React 的 `src/react/directUpload.ts` 管理会话、续期和断点，`ossTrans
 先用专用测试 Bucket 和测试账号开启直传，通过浏览器上传一个超过 5 MiB 的 MP4、封面和头像。验证 OSS 预检、跨 Key 或读取操作被 STS 拒绝、网络中断续传、取消与后端校验状态、发布后稳定路径 307 和最终 `206 Content-Range`。等待实际签名失效后再次拖动，检查 Range、时间位置与刷新。确认浏览器没有向应用 API 发送文件字节，也没有把应用 Bearer 发到 OSS。GitHub Actions 中的 OSS、STS 和签名过期模拟只覆盖应用行为，不能代替这次测试。
 
 本仓库使用 Linux Chromium/Nginx 验证签名跳转和 Range，并单独在 macOS WebKit 验证原生拖动。Linux WebKit 的容器夹具上曾返回空的 `seekable`，该环境继续覆盖直传、续传、取消与 CSP。发布前仍需用真实 Bucket 和移动端 Safari 验收。
+
+### Alibaba CDN production playback
+
+Set `CDN_AUTH_TYPE=A` and inject `CDN_AUTH_KEY` into the API environment to use CDN type A authentication instead of OSS V4 playback signatures. An explicit public HTTPS `OSS_PLAYBACK_ENDPOINT` is required. Configure the CDN console TTL to 900 seconds. The URL timestamp is the current issuance time; the signer does not add another 900 seconds. `CDN_AUTH_TTL_SECONDS` is not read by the application: expiry is enforced by the CDN console.
+
+Upload STS grants, internal OSS validation and deletion continue to use OSS. Playback retains the existing `/api/media/assets/:id` authorization checks and only signs validated final asset keys for GET or HEAD. Never put the CDN key in frontend build arguments. Configure the frontend playback origin to match the CDN origin, and rebuild the frontend with secure sessions before enabling the public HTTPS entry.

@@ -102,6 +102,8 @@ services:
       OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
       OSS_UPLOAD_ENDPOINT: ${OSS_UPLOAD_ENDPOINT:-}
       OSS_PLAYBACK_ENDPOINT: ${OSS_PLAYBACK_ENDPOINT:-}
+      CDN_AUTH_TYPE: ${CDN_AUTH_TYPE:-}
+      CDN_AUTH_KEY: ${CDN_AUTH_KEY:-}
     volumes:
       - backend_uploads:/app/.run/uploads
     mem_limit: 260m

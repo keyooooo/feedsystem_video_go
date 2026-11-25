@@ -125,6 +125,7 @@ func main() {
 				log.Fatal("OSS direct upload requires Redis")
 			}
 			cloud, err := upload.NewAlibabaCloud(upload.CloudConfig{
+				CDNAuthType: os.Getenv("CDN_AUTH_TYPE"), CDNAuthKey: os.Getenv("CDN_AUTH_KEY"),
 				Region: os.Getenv("OSS_REGION"), Bucket: os.Getenv("OSS_BUCKET"),
 				UploadRoleARN: os.Getenv("OSS_UPLOAD_ROLE_ARN"),
 				AccessKeyID:   os.Getenv("OSS_ACCESS_KEY_ID"), AccessKeySecret: os.Getenv("OSS_ACCESS_KEY_SECRET"),

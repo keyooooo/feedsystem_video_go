@@ -6,7 +6,7 @@ import { ReviewSuggestions } from "./ModerationEvidence";
 import s from "./ModerationPage.module.css";
 
 type Case = { id: number; version: number; state: string; routing_reason?: string };
-type Action = "keep" | "fold" | "restore";
+type Action = "keep" | "fold" | "restore" | "delete";
 type Detail = {
   case: Case;
   target_version: number;
@@ -30,7 +30,7 @@ const reviewVersion = (detail: Detail): ReviewVersion => ({
 });
 
 const auth = { authRequired: true };
-const actionNames = { keep: "维持现状", fold: "折叠评论", restore: "恢复展示" };
+const actionNames = { keep: "维持现状", fold: "折叠评论", restore: "恢复展示", delete: "删除评论" };
 const stateNames: Record<string, string> = { queued: "待处理", awaiting_review: "待终审", running: "审核中", resolved: "已处理" };
 const reasonNames: Record<string, string> = { spam_promo: "垃圾营销", harassment: "定向辱骂", media_only: "视频画面或音频", other: "其他原因" };
 
@@ -96,6 +96,7 @@ export default function ModerationPage() {
 
   async function save() {
     if (!detail || busy || (stale && !submission)) return;
+    if (!submission && action === "delete" && !window.confirm("删除评论后无法恢复，确认删除？")) return;
     const payload = submission ?? {
       ...reviewVersion(detail),
       case_id: detail.case.id,
@@ -156,6 +157,7 @@ export default function ModerationPage() {
             <label>处置方式 <select disabled={busy} value={action} onChange={e => { setAction(e.target.value as Action); setFalseFold(false); markDraft(); }}>
               <option value="keep">{actionNames.keep}</option>
               <option value="fold" disabled={!!detail.comment.removed_at}>{actionNames.fold}</option>
+              <option value="delete" disabled={!!detail.comment.removed_at}>{actionNames.delete}</option>
               <option value="restore" disabled={!detail.comment.moderation_folded || !!detail.comment.removed_at}>{actionNames.restore}</option>
             </select></label>
             {action === "fold" && <label>适用条款 <select disabled={busy} value={policyId} onChange={e => { setPolicyID(e.target.value); markDraft(); }}>

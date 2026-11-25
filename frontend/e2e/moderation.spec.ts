@@ -170,3 +170,45 @@ test("reporter can reopen a deleted-comment result from a notification", async (
   await expect(page.getByRole("heading", { name: "举报 #95" })).toBeVisible();
   await expect(page.getByText("举报已处理，作者已删除评论", { exact: true })).toBeVisible();
 });
+
+test("reviewer must confirm before submitting comment deletion", async ({ page }) => {
+  await page.addInitScript(() => {
+    const claims = btoa(JSON.stringify({ account_id: 1, username: "reviewer" }));
+    localStorage.setItem("access_token", `header.${claims}.signature`);
+  });
+  const entry = { id: 40, version: 2, state: "awaiting_review" };
+  let submitted = false;
+  await page.route(url => url.pathname.startsWith("/api/"), async route => {
+    switch (new URL(route.request().url()).pathname) {
+      case "/api/moderation/stream":
+        return route.fulfill({ contentType: "text/event-stream", body: ": keepalive\n\n" });
+      case "/api/moderation/list":
+        return route.fulfill({ json: { cases: submitted ? [] : [entry] } });
+      case "/api/moderation/detail":
+        return route.fulfill({ json: {
+          case: submitted ? { ...entry, state: "resolved", version: 3 } : entry,
+          target_version: 0, comment: submitted ? { removed_at: "2026-11-25", content: "" } : { content: "测试评论" },
+          reason_code: "other", detail: "",
+          decisions: submitted ? [{ id: 1, action: "delete", reason: "人工删除测试" }] : [],
+        } });
+      case "/api/moderation/decide":
+        expect(route.request().postDataJSON()).toMatchObject({
+          case_id: 40, case_version: 2, target_version: 0, action: "delete", reason: "人工删除测试",
+        });
+        submitted = true;
+        return route.fulfill({ json: { id: 1 } });
+      default:
+        return route.fulfill({ json: {} });
+    }
+  });
+  await page.goto("/moderation");
+  await page.getByRole("button", { name: /#40/ }).click();
+  await page.getByLabel("处置方式").selectOption("delete");
+  await page.getByLabel("审核理由").fill("人工删除测试");
+  page.once("dialog", dialog => dialog.dismiss());
+  await page.getByRole("button", { name: "保存决定" }).click();
+  expect(submitted).toBe(false);
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "保存决定" }).click();
+  await expect(page.getByText("删除评论 · 人工删除测试")).toBeVisible();
+});

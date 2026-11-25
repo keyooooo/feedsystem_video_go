@@ -9,6 +9,7 @@ const results: Record<string, string> = {
   keep: "举报已处理，评论维持当前展示状态",
   fold: "举报已处理，评论已折叠",
   restore: "举报已复核，评论已恢复展示",
+  delete: "举报已处理，评论已由审核员删除",
   target_removed: "举报已处理，作者已删除评论",
 };
 

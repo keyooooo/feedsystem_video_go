@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-const CandidateRuleVersion = "spam-promo-v1"
-const CandidateConfidence = 0.95
+const CandidateRuleVersion = "spam-promo-v2"
+const CandidateConfidence = 0.90
 
 var (
 	homeChannel         = regexp.MustCompile(`(?:群号|渠道)(?:见|在)(?:我|个人)?主页`)

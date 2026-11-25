@@ -11,11 +11,13 @@ func TestFoldCandidate(t *testing.T) {
 		want         bool
 	}{
 		{"explicit promotion", "加群领返现，群号见主页", 0.97, false, false, true},
+		{"confidence at threshold", "加群领返现，群号见主页", 0.90, false, false, true},
+		{"confidence from local real model example", "加群领返现，群号见主页。", 0.92, false, false, true},
 		{"quoted promotion", "他说“加群领返现，群号见主页”", 0.99, false, false, false},
 		{"warning", "别信加群领返现，群号见主页", 0.99, false, false, false},
 		{"unverified contact", "加群领返现 [链接]", 0.99, false, false, false},
 		{"no solicitation", "返现活动详情，群号见主页", 0.99, false, false, false},
-		{"confidence below threshold", "加群领返现，群号见主页", 0.94, false, false, false},
+		{"confidence below threshold", "加群领返现，群号见主页", 0.899, false, false, false},
 		{"reply missing parent", "加群领返现，群号见主页", 0.99, true, false, false},
 		{"reply with cited parent", "加群领返现，群号见主页", 0.99, true, true, true},
 	}

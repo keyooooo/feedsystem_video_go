@@ -928,7 +928,7 @@ func (terminalFoldModel) Generate(context.Context, []*schema.Message, ...model.O
 	return schema.AssistantMessage("", []schema.ToolCall{{
 		ID: "fold-1", Type: "function", Function: schema.FunctionCall{
 			Name:      "submit_review_decision",
-			Arguments: `{"action":"fold","policy_id":"SPAM_PROMO","confidence":0.99,"evidence_ids":["target:1"],"reason":"规则核对通过"}`,
+			Arguments: `{"action":"fold","policy_id":"SPAM_PROMO","confidence":0.92,"evidence_ids":["target:1"],"reason":"规则核对通过"}`,
 		},
 	}}), nil
 }

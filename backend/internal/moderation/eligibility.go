@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const CandidateRuleVersion = "spam-promo-v2"
+const CandidateRuleVersion = "spam-promo-v3"
 const CandidateConfidence = 0.90
 
 var (
@@ -47,6 +47,24 @@ func hasOriginalChannel(text string) bool {
 	}
 	for _, pattern := range contactPatterns {
 		if pattern.pattern.MatchString(text) {
+			return true
+		}
+	}
+	return false
+}
+
+// ThresholdFoldCandidate trusts a validated model decision rather than a second
+// keyword classifier. Replies still require cited parent evidence.
+func ThresholdFoldCandidate(snapshot Snapshot, suggestion Suggestion) bool {
+	if snapshot.TargetRemoved || suggestion.Action != "suggest_fold" || suggestion.PolicyID != "SPAM_PROMO" ||
+		!suggestion.valid(snapshot.Items) || *suggestion.Confidence < CandidateConfidence {
+		return false
+	}
+	if !snapshot.NeedsContext {
+		return true
+	}
+	for _, item := range snapshot.Items {
+		if item.ID == "parent:1" && item.Status == "ok" && containsEvidence(suggestion.EvidenceIDs, item.ID) {
 			return true
 		}
 	}

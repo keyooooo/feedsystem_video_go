@@ -18,6 +18,7 @@ export type ShadowRun = {
   rule_version?: string;
   fold_candidate: boolean;
   execution_outcome?: string;
+  execution_mode?: "threshold" | "shadow" | "approved";
   failure?: string;
   duration_ms: number;
   evidence?: { items?: Evidence[]; tool_trace?: {
@@ -53,6 +54,8 @@ const failures: Record<string, string> = {
 
 const outcomes: Record<string, string> = {
   applied: "已自动折叠并结案",
+  shadow_only: "当前为影子模式，仅记录建议，已转人工",
+  version_mismatch: "决策版本不匹配，已转人工",
   target_removed: "评论已删除，工单已结案",
   retry_scheduled: "等待重试",
   evaluation_failed: "审核执行异常，已转人工",
@@ -97,8 +100,8 @@ export function ReviewSuggestions({ caseId }: { caseId: number }) {
 
 function ModerationEvidence({ runs }: { runs: ShadowRun[] }) {
   if (runs.length === 0) return null;
-  return <section aria-label="影子审核记录" className={s.evidence}>
-    <h3>影子审核记录</h3>
+  return <section aria-label="Agent 审核记录" className={s.evidence}>
+    <h3>Agent 审核记录</h3>
     {[...runs].reverse().map(run => {
       const suggestion = run.suggestion;
       const references = new Set(suggestion?.evidence_ids);
@@ -106,6 +109,7 @@ function ModerationEvidence({ runs }: { runs: ShadowRun[] }) {
       const outcome = run.execution_outcome && outcomes[run.execution_outcome];
       return <details key={run.id}>
         <summary>第 {run.attempt} 次审核 · {run.failure ? "转人工" : "查看建议与证据"}</summary>
+        {run.execution_mode && <p>运行模式：{{ threshold: "阈值自动审核", shadow: "影子审核", approved: "评测批准审核" }[run.execution_mode]}</p>}
         {outcome && <p><strong>{outcome}</strong></p>}
         {run.failure && <p>{failures[run.failure] ?? run.failure}</p>}
         {suggestion?.action && <p><strong>{actions[suggestion.action] ?? suggestion.action}</strong>
@@ -113,7 +117,7 @@ function ModerationEvidence({ runs }: { runs: ShadowRun[] }) {
           {typeof suggestion.confidence === "number" && <> · 置信度 {Math.round(suggestion.confidence * 100)}%</>}
         </p>}
         {suggestion?.reason && <p>{suggestion.reason}</p>}
-        {run.fold_candidate && <p>符合自动折叠规则</p>}
+        {run.fold_candidate && <p>模型折叠意图已通过校验</p>}
         <ul>
           {run.evidence?.items?.map(item => <li key={item.id}>
             <strong>{sources[item.source] ?? item.source}</strong> · {statuses[item.status]}

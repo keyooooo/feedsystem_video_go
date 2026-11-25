@@ -19,6 +19,7 @@ const (
 )
 
 type ShadowRun struct {
+	ExecutionMode      string          `json:"execution_mode,omitempty" gorm:"size:16"`
 	ExecutionOutcome   string          `json:"execution_outcome,omitempty" gorm:"size:32"`
 	DecisionProtocol   string          `json:"decision_protocol,omitempty" gorm:"size:32"`
 	QueueMS            int64           `json:"queue_ms" gorm:"not null;default:0"`
@@ -86,7 +87,8 @@ func claimShadowCase(db *gorm.DB) (Case, error) {
 	return item, err
 }
 
-func finishShadowCase(db *gorm.DB, item Case, result ShadowRun, retry bool, cache *rediscache.Client) error {
+func finishShadowCase(db *gorm.DB, item Case, result ShadowRun, retry bool, cache *rediscache.Client, modes ...AutoFoldMode) error {
+	mode := autoFoldMode(modes)
 	changed := false
 	err := db.Transaction(func(tx *gorm.DB) error {
 		now := time.Now().UTC()
@@ -106,6 +108,7 @@ func finishShadowCase(db *gorm.DB, item Case, result ShadowRun, retry bool, cach
 			return nil
 		}
 		changed = true
+		result.ExecutionMode = string(mode)
 		result.CaseID = item.ID
 		result.Attempt = item.Attempts
 		result.ResultState = state
@@ -127,7 +130,7 @@ func finishShadowCase(db *gorm.DB, item Case, result ShadowRun, retry bool, cach
 				outcome = "evaluation_failed"
 			} else {
 				var err error
-				outcome, err = applyAutomaticFold(tx, item, result)
+				outcome, err = applyAutomaticFold(tx, item, result, mode)
 				if err != nil {
 					return err
 				}
@@ -149,7 +152,8 @@ func finishShadowCase(db *gorm.DB, item Case, result ShadowRun, retry bool, cach
 
 // RunShadow consumes durable work leases. Evaluators return suggestions and
 // evidence. An approved rollout may apply a verified spam candidate.
-func RunShadow(ctx context.Context, db *gorm.DB, evaluate ShadowEvaluator, cache *rediscache.Client) error {
+func RunShadow(ctx context.Context, db *gorm.DB, evaluate ShadowEvaluator, cache *rediscache.Client, modes ...AutoFoldMode) error {
+	mode := autoFoldMode(modes)
 	if evaluate == nil {
 		return errors.New("missing shadow evaluator")
 	}
@@ -194,7 +198,7 @@ func RunShadow(ctx context.Context, db *gorm.DB, evaluate ShadowEvaluator, cache
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err := finishShadowCase(db, item, result, retry, cache); err != nil {
+		if err := finishShadowCase(db, item, result, retry, cache, mode); err != nil {
 			return err
 		}
 	}

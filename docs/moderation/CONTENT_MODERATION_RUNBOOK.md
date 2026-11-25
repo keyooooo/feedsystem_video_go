@@ -1,6 +1,6 @@
 # 影子审核运行与演示
 
-本手册对应 CONTENT_MODERATION_SPEC.md 第 11 节。演示使用独立开发环境，自动折叠保持关闭。模型建议由审核员逐单确认，完整人工标注与正式放量见 Spec 第 12 节。
+本手册对应 CONTENT_MODERATION_SPEC.md 第 11 节。演示使用独立开发环境。需要自动折叠时，Worker 环境配置 `MODERATION_AUTO_FOLD_MODE=threshold` 并重建 Worker；模型有效垃圾营销决策置信度 >= 0.90 时可自动折叠。`shadow` 只保存建议；未配置或 `approved` 保持原有放量和校准门槛。模型建议由审核员逐单确认，完整人工标注与正式放量见 Spec 第 12 节。
 
 ## 启动与配置
 
@@ -105,3 +105,9 @@ npx playwright test e2e/moderation.spec.ts --project=chromium --workers=1
 工单未出现时依次检查举报记录、Outbox、RabbitMQ 连接和 Worker 日志。待终审但没有建议时检查 Worker 模型配置、失败原因和证据状态。保存返回 409 时重新核对当前版本，网络失败时重试同一决定。SSE 断线后客户端重新拉取队列，也支持手动刷新。
 
 真实模型请求前确认样本数、预计请求次数和 token。已有历史报告及其标签限制见 Spec 第 9、10 节。开发报告中的 token 为已返回用量，实际计费与剩余额度以方舟控制台为准。
+
+## 阈值自动折叠验证
+
+在启动 Worker 前显式设置 `MODERATION_AUTO_FOLD_MODE=threshold`。Compose 需要重新创建 Worker 才会读取新环境变量。启动日志应包含 `Moderation execution mode: threshold; fold confidence threshold: 0.90`。
+
+用独立演示账号发表营销评论并用另一账号举报；工单完成后查看 `execution_mode=threshold`、`execution_outcome=applied`、工单 `resolved`、评论 `moderation_folded=true` 和审核决定 `reviewer_id=0`。确认评论区默认只在底部展示“已折叠评论”，点击后才出现完整评论行；自动化路径不能删除正文。低于 0.90、证据不足或工具协议失败的工单应进入人工审核。不要伪造放量数据来启用此模式，不要将历史待终审工单批量重放。脚本模型回归不消耗真实额度；真实模型验证限量执行。

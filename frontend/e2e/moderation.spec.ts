@@ -54,7 +54,7 @@ test("reviewer inspects cited evidence and submits a versioned decision", async 
       return route.fulfill({ json: {
         shadow_runs: [{
           id: 8, attempt: 1, model: "test-model", policy_version: "comment-v1",
-          fold_candidate: false, execution_outcome: "not_eligible", duration_ms: 120,
+          fold_candidate: false, execution_mode: "threshold", execution_outcome: "not_eligible", duration_ms: 120,
           suggestion: { action: "suggest_keep", confidence: 0.98, evidence_ids: ["parent:1"], reason: "引用上文劝阻" },
           evidence: { items: [
             { id: "parent:1", source: "parent", status: "ok", text: "加群领返现" },
@@ -79,6 +79,8 @@ test("reviewer inspects cited evidence and submits a versioned decision", async 
   await page.getByRole("button", { name: "查看模型建议" }).click();
   await page.getByText("第 1 次审核 · 查看建议与证据").click();
   await expect(page.getByText("引用上文劝阻")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Agent 审核记录" })).toBeVisible();
+  await expect(page.getByText("运行模式：阈值自动审核")).toBeVisible();
   await expect(page.getByText("未达到自动折叠条件，已转人工")).toBeVisible();
   await expect(page.getByText("加群领返现")).toBeVisible();
   await expect(page.getByText("建议引用")).toBeVisible();

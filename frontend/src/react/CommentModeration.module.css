@@ -1,19 +1,22 @@
-.folded {
-  margin-block: 6px;
-  padding: 10px 12px;
-  border: 1px solid #303642;
-  border-radius: 10px;
-  background: #ffffff04;
+.foldedGroup {
+  margin-top: 16px;
+  border-top: 1px solid var(--border, #303642);
 }
-.folded p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.folded p:first-child { color: var(--muted); font-size: 14px; }
-.folded button {
+.foldedToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
   min-height: 44px;
-  padding: 0;
+  padding: 12px;
   border: 0;
   background: transparent;
-  color: var(--accent);
-  font-size: 13px;
+  color: var(--muted);
+  font: inherit;
+}
+.foldedToggle:hover {
+  color: var(--text);
 }
 .form { display: grid; gap: 16px; margin-top: 16px; }
 .form label { display: grid; gap: 8px; font-size: 14px; }

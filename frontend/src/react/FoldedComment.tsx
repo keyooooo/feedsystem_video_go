@@ -1,31 +1,38 @@
-import s from "./CommentModeration.module.css";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { postJson } from "../api/client";
 
+// Mounted only after the user opens the shared folded-comments section.
 export function FoldedComment({ commentId }: { commentId: number }) {
   const [content, setContent] = useState<string>();
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-
-  async function reveal() {
-    setBusy(true);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setContent(undefined);
     setMessage("");
-    try {
-      const result = await postJson<{ content: string }>("/comment/reveal", { comment_id: commentId });
-      setContent(result.content);
-    } catch {
-      setMessage("暂时无法展开此评论");
-    } finally {
-      setBusy(false);
-    }
-  }
+    void postJson<{ content: string }>("/comment/reveal", {
+      comment_id: commentId,
+    })
+      .then((result) => {
+        if (active) setContent(result.content);
+      })
+      .catch(() => {
+        if (active) setMessage("暂时无法展开此评论");
+      });
+    return () => {
+      active = false;
+    };
+  }, [commentId, attempt]);
 
-  return <div className={s.folded}>
-    <p>{content ?? "评论已折叠"}</p>
-    <button type="button" aria-expanded={content !== undefined} disabled={busy}
-      onClick={() => { if (content === undefined) void reveal(); else setContent(undefined); }}>
-      {content === undefined ? "展开评论" : "收起评论"}
-    </button>
-    {message && <span role="status">{message}</span>}
-  </div>;
+  if (message)
+    return (
+      <div role="status">
+        {message}{" "}
+        <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+          重试展开
+        </button>
+      </div>
+    );
+  if (content === undefined) return <p role="status">正在展开评论…</p>;
+  return <p>{content}</p>;
 }

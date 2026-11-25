@@ -23,6 +23,8 @@ import (
 	rediscache "feedsystem_video_go/internal/middleware/redis"
 	"feedsystem_video_go/internal/moderation"
 	"feedsystem_video_go/internal/video"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	mysqlconfig "github.com/go-sql-driver/mysql"
 	amqp "github.com/rabbitmq/amqp091-go"
 	goredis "github.com/redis/go-redis/v9"
@@ -376,16 +378,7 @@ func TestReportEndToEnd(t *testing.T) {
 				return moderation.NewShadowEvaluator(db, nil, "test-model")(attempt, report)
 			}
 			if report.ReasonCode == "spam_promo" {
-				snapshot, err := moderation.CollectEvidence(attempt, db, report)
-				if err != nil {
-					return moderation.ShadowRun{Failure: "test_evidence"}, false
-				}
-				confidence := 0.99
-				snapshot.Decision = &moderation.DecisionIntent{Action: "fold", PolicyID: "SPAM_PROMO", Confidence: &confidence, EvidenceIDs: []string{"target:1"}, Reason: "规则核对通过"}
-				evidence, _ := json.Marshal(snapshot)
-				policy, prompt := moderation.EvalVersions()
-				return moderation.ShadowRun{DecisionProtocol: moderation.DecisionProtocolVersion, Model: autoModel, PolicyVersion: policy, PromptVersion: prompt, RuleVersion: moderation.CandidateRuleVersion,
-					Evidence: evidence, FoldCandidate: true, Suggestion: json.RawMessage(`{"action":"suggest_fold","policy_id":"SPAM_PROMO","confidence":0.99,"evidence_ids":["target:1"],"reason":"规则核对通过"}`)}, false
+				return moderation.NewShadowEvaluator(db, terminalFoldModel{}, autoModel)(attempt, report)
 			}
 			policy, prompt := moderation.EvalVersions()
 			return moderation.ShadowRun{PolicyVersion: policy, PromptVersion: prompt, RuleVersion: moderation.CandidateRuleVersion,
@@ -611,6 +604,10 @@ func TestReportEndToEnd(t *testing.T) {
 		}
 		return len(cases) == 1 && cases[0].State == "awaiting_review"
 	})
+	var gatedRun moderation.ShadowRun
+	if err := db.Where("case_id = (SELECT id FROM moderation_cases WHERE report_id = ?)", gatedReport.ID).Take(&gatedRun).Error; err != nil || gatedRun.ExecutionOutcome != "calibration_pending" {
+		t.Fatalf("expected calibration referral, got %q (%v)", gatedRun.ExecutionOutcome, err)
+	}
 	calibrationSeed(30)
 	promo := video.Comment{VideoID: 1, AuthorID: claims.AccountID, Content: "加群领返现，群号见主页"}
 	if err := db.Create(&promo).Error; err != nil {
@@ -646,6 +643,10 @@ func TestReportEndToEnd(t *testing.T) {
 	var automatic moderation.Decision
 	if err := db.Where("case_id = ?", automated.ID).Take(&automatic).Error; err != nil || automatic.ReviewerID != 0 || automatic.ShadowRunID == nil || automatic.Action != "fold" {
 		t.Fatalf("missing automatic audit record: %+v (%v)", automatic, err)
+	}
+	var appliedRun moderation.ShadowRun
+	if err := db.First(&appliedRun, *automatic.ShadowRunID).Error; err != nil || appliedRun.ExecutionOutcome != "applied" || appliedRun.ModelCalls != 1 {
+		t.Fatalf("missing applied terminal execution: outcome=%q calls=%d (%v)", appliedRun.ExecutionOutcome, appliedRun.ModelCalls, err)
 	}
 	if err := db.First(&promo, promo.ID).Error; err != nil || !promo.ModerationFolded {
 		t.Fatalf("automatic fold did not change display state: %v", err)
@@ -881,4 +882,19 @@ func TestReportEndToEnd(t *testing.T) {
 		t.Fatal("broker supervisor did not stop")
 	}
 
+}
+
+type terminalFoldModel struct{ model.ToolCallingChatModel }
+
+func (terminalFoldModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return terminalFoldModel{}, nil
+}
+
+func (terminalFoldModel) Generate(context.Context, []*schema.Message, ...model.Option) (*schema.Message, error) {
+	return schema.AssistantMessage("", []schema.ToolCall{{
+		ID: "fold-1", Type: "function", Function: schema.FunctionCall{
+			Name:      "submit_review_decision",
+			Arguments: `{"action":"fold","policy_id":"SPAM_PROMO","confidence":0.99,"evidence_ids":["target:1"],"reason":"规则核对通过"}`,
+		},
+	}}), nil
 }

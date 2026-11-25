@@ -12,6 +12,7 @@ import (
 )
 
 type EvalCase struct {
+	AgentScript      []*schema.Message     `json:"agent_script,omitempty"`
 	Cohorts          []string              `json:"cohorts,omitempty"`
 	ReviewBatch      string                `json:"review_batch,omitempty"`
 	ThreadID         string                `json:"thread_id,omitempty"`
@@ -100,7 +101,11 @@ func EvaluateCase(ctx context.Context, fixture EvalCase, chat model.ToolCallingC
 	snapshot := fixture.Snapshot
 	snapshot.Items = slices.Clone(snapshot.Items)
 	if chat == nil {
-		chat = &fixtureChat{replies: fixture.Script}
+		replies := fixture.Script
+		if allowTools && len(fixture.AgentScript) > 0 {
+			replies = fixture.AgentScript
+		}
+		chat = &fixtureChat{replies: replies}
 	}
 	measured := &measuredChat{ToolCallingChatModel: chat}
 	mode := "single"

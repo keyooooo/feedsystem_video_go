@@ -127,6 +127,7 @@ func reviewedFixtures(dataset datasetInput, sheet labelSheet, version string) ([
 		fixture.RequiredEvidence = item.RequiredEvidence
 		fixture.Injection = *item.Injection
 		fixture.Script = nil
+		fixture.AgentScript = nil
 		output = append(output, fixture)
 	}
 	return output, nil

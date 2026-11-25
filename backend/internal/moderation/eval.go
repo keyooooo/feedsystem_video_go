@@ -128,6 +128,11 @@ func EvaluateCase(ctx context.Context, fixture EvalCase, chat model.ToolCallingC
 			result.Suggestion = &proposal
 			result.Action = proposal.Action
 			result.FoldCandidate = FoldCandidate(snapshot, proposal)
+			if allowTools {
+				result.FoldCandidate = result.FoldCandidate && authorizedFoldIntent(
+					ShadowRun{DecisionProtocol: DecisionProtocolVersion}, snapshot, proposal,
+				)
+			}
 			result.PolicyID = proposal.PolicyID
 			if !slices.Contains(fixture.ExpectedActions, result.Action) {
 				result.Mismatches = append(result.Mismatches, "action")

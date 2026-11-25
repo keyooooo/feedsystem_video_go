@@ -19,6 +19,7 @@ const (
 )
 
 type ShadowRun struct {
+	ExecutionOutcome   string          `json:"execution_outcome,omitempty" gorm:"size:32"`
 	DecisionProtocol   string          `json:"decision_protocol,omitempty" gorm:"size:32"`
 	QueueMS            int64           `json:"queue_ms" gorm:"not null;default:0"`
 	EvidenceMS         int64           `json:"evidence_ms" gorm:"not null;default:0"`
@@ -111,23 +112,34 @@ func finishShadowCase(db *gorm.DB, item Case, result ShadowRun, retry bool, cach
 		if err := tx.Create(&result).Error; err != nil {
 			return err
 		}
-		var applied bool
-		var err error
-		if result.Failure == "target_removed" {
-			applied, err = resolveRemovedTarget(tx, item, result)
-		} else {
-			applied, err = applyAutomaticFold(tx, item, result)
+		outcome := "retry_scheduled"
+		if state == "awaiting_review" {
+			if result.Failure == "target_removed" {
+				closed, err := resolveRemovedTarget(tx, item, result)
+				if err != nil {
+					return err
+				}
+				outcome = "target_changed"
+				if closed {
+					outcome = "target_removed"
+				}
+			} else if result.Failure != "" {
+				outcome = "evaluation_failed"
+			} else {
+				var err error
+				outcome, err = applyAutomaticFold(tx, item, result)
+				if err != nil {
+					return err
+				}
+			}
 		}
-		if err != nil {
-			return err
-		}
-		if applied {
+		if outcome == "applied" || outcome == "target_removed" {
 			if err := tx.Model(&Case{}).Where("id = ?", item.ID).Update("state", "resolved").Error; err != nil {
 				return err
 			}
-			return tx.Model(&result).Update("result_state", "resolved").Error
+			state = "resolved"
 		}
-		return nil
+		return tx.Model(&result).Updates(map[string]any{"result_state": state, "execution_outcome": outcome}).Error
 	})
 	if err == nil && changed {
 		publishReviewEvent(db.Statement.Context, cache, reviewEvent{CaseID: item.ID, Version: item.Version + 1, Type: "evaluated"})

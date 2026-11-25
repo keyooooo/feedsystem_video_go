@@ -54,59 +54,59 @@ func (r Rollout) allows(run ShadowRun, commentID uint) bool {
 		r.InjectionCases >= 20 && r.InjectionBlocked == r.InjectionCases
 }
 
-func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (bool, error) {
+func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (string, error) {
 	if !run.FoldCandidate || run.Failure != "" {
-		return false, nil
+		return "not_eligible", nil
 	}
 	var snapshot Snapshot
 	var suggestion Suggestion
 	if json.Unmarshal(run.Evidence, &snapshot) != nil || json.Unmarshal(run.Suggestion, &suggestion) != nil || !authorizedFoldIntent(run, snapshot, suggestion) || !FoldCandidate(snapshot, suggestion) {
-		return false, nil
+		return "invalid_terminal_intent", nil
 	}
 	var rollout Rollout
 	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&rollout, "policy_id = ?", "SPAM_PROMO").Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false, nil
+		return "rollout_missing", nil
 	}
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	var report Report
 	if err := tx.First(&report, item.ReportID).Error; err != nil {
-		return false, err
+		return "", err
 	}
 	if !rollout.allows(run, report.CommentID) {
-		return false, nil
+		return "rollout_ineligible", nil
 	}
 	counts, err := countCalibration(tx, run.Model)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	if counts.Confirmed < 30 || counts.Rejected != 0 {
-		return false, nil
+		return "calibration_pending", nil
 	}
 	var target video.Comment
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&target, report.CommentID).Error; err != nil {
-		return false, err
+		return "", err
 	}
 	digest := sha256.Sum256([]byte(target.Content))
 	if target.RemovedAt != nil || hex.EncodeToString(digest[:]) != snapshot.TargetDigest {
-		return false, nil
+		return "target_changed", nil
 	}
 	for _, evidence := range snapshot.Items {
 		if evidence.ID == "target:1" && (evidence.Text != evidenceText(target.Content) || !hasOriginalChannel(target.Content) ||
 			evidence.CollectedAt.IsZero() || time.Since(evidence.CollectedAt) > shadowLease || time.Until(evidence.CollectedAt) > time.Second) {
-			return false, nil
+			return "target_evidence_stale", nil
 		}
 	}
 	if target.ReplyToCommentID != nil {
 		var parent video.Comment
 		err := threadScope(tx, target).Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", *target.ReplyToCommentID).Take(&parent).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return false, nil
+			return "parent_unavailable", nil
 		}
 		if err != nil {
-			return false, err
+			return "", err
 		}
 		matches := false
 		for _, evidence := range snapshot.Items {
@@ -116,7 +116,7 @@ func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (bool, error) {
 			}
 		}
 		if !matches {
-			return false, nil
+			return "parent_changed", nil
 		}
 	}
 	// A human keep or restore takes priority over later automation.
@@ -125,10 +125,10 @@ func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (bool, error) {
 		Joins("JOIN moderation_reports r ON r.id = c.report_id").
 		Where("r.comment_id = ? AND d.reviewer_id <> 0 AND d.action IN ?", target.ID, []string{"keep", "restore"}).
 		Count(&humanOverrides).Error; err != nil {
-		return false, err
+		return "", err
 	}
 	if humanOverrides > 0 {
-		return false, nil
+		return "human_override", nil
 	}
 	decision := Decision{
 		CaseID: item.ID, CaseVersion: item.Version, TargetVersion: target.ModerationVersion,
@@ -138,10 +138,10 @@ func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (bool, error) {
 	changed := !target.ModerationFolded
 	if changed {
 		if target.ModerationVersion != snapshot.TargetVersion {
-			return false, nil
+			return "target_version_changed", nil
 		}
 		if err := tx.Model(&target).Updates(map[string]any{"moderation_folded": true, "moderation_version": target.ModerationVersion + 1}).Error; err != nil {
-			return false, err
+			return "", err
 		}
 	} else {
 		var applied Decision
@@ -153,20 +153,20 @@ func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (bool, error) {
 			Where("r.comment_id = ? AND d.action = ? AND d.related_decision_id IS NULL", target.ID, "fold").
 			Order("d.id DESC").Take(&applied).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return false, nil
+			return "prior_decision_missing", nil
 		}
 		if err != nil {
-			return false, err
+			return "", err
 		}
 		if applied.PolicyID != "SPAM_PROMO" || applied.TargetVersion+1 != target.ModerationVersion ||
 			(snapshot.TargetVersion != target.ModerationVersion && snapshot.TargetVersion != applied.TargetVersion) {
-			return false, nil
+			return "prior_decision_mismatch", nil
 		}
 		decision.RelatedDecisionID = &applied.ID
 		decision.Reason = applied.Reason
 	}
 	if err := recordDecision(tx, report, target, &decision, changed); err != nil {
-		return false, err
+		return "", err
 	}
-	return true, nil
+	return "applied", nil
 }

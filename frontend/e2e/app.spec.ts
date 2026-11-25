@@ -486,6 +486,7 @@ test("muting preserves the playhead and a user-paused video", async ({
     .poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
     .toBeGreaterThan(0.1);
   const pausedAt = await video.evaluate((v: HTMLVideoElement) => {
+    v.loop = false;
     v.pause();
     return v.currentTime;
   });

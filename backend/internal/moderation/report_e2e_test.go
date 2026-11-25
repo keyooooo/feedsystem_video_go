@@ -365,7 +365,7 @@ func TestReportEndToEnd(t *testing.T) {
 	if err := json.Unmarshal(removalReceipt.Body.Bytes(), &removal); err != nil || removal.ReportID == 0 {
 		t.Fatal("missing removed target report ID")
 	}
-	if err := video.NewCommentRepository(db).DeleteComment(context.Background(), &removedTarget); err != nil {
+	if _, err := video.NewCommentRepository(db).DeleteComment(context.Background(), &removedTarget); err != nil {
 		t.Fatal(err)
 	}
 	calibrationModel := fmt.Sprintf("calibration-%d", id)

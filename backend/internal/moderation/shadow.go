@@ -19,6 +19,7 @@ const (
 )
 
 type ShadowRun struct {
+	DecisionProtocol   string          `json:"decision_protocol,omitempty" gorm:"size:32"`
 	QueueMS            int64           `json:"queue_ms" gorm:"not null;default:0"`
 	EvidenceMS         int64           `json:"evidence_ms" gorm:"not null;default:0"`
 	ModelMS            int64           `json:"model_ms" gorm:"not null;default:0"`

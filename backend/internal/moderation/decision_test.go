@@ -43,3 +43,28 @@ func TestDecisionIntentContract(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAutomaticFoldRequiresMatchingTerminalIntent(t *testing.T) {
+	confidence := 0.98
+	intent := &DecisionIntent{Action: "fold", PolicyID: "SPAM_PROMO", Confidence: &confidence, EvidenceIDs: []string{"target:1"}, Reason: "主动招揽导流"}
+	snapshot := Snapshot{Decision: intent, Items: []Evidence{{ID: "target:1", Status: "ok"}}}
+	suggestion := Suggestion{Action: "suggest_fold", PolicyID: intent.PolicyID, Confidence: &confidence, EvidenceIDs: []string{"target:1"}, Reason: intent.Reason}
+	run := ShadowRun{DecisionProtocol: DecisionProtocolVersion}
+	if !authorizedFoldIntent(run, snapshot, suggestion) {
+		t.Fatal("matching terminal intent rejected")
+	}
+	suggestion.Reason = "different suggestion"
+	if authorizedFoldIntent(run, snapshot, suggestion) {
+		t.Fatal("unbound suggestion accepted")
+	}
+	suggestion.Reason = intent.Reason
+	run.DecisionProtocol = ""
+	if authorizedFoldIntent(run, snapshot, suggestion) {
+		t.Fatal("legacy suggestion authorized an automatic fold")
+	}
+	run.DecisionProtocol = DecisionProtocolVersion
+	snapshot.Decision = nil
+	if authorizedFoldIntent(run, snapshot, suggestion) {
+		t.Fatal("missing terminal intent authorized an automatic fold")
+	}
+}

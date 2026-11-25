@@ -380,9 +380,11 @@ func TestReportEndToEnd(t *testing.T) {
 				if err != nil {
 					return moderation.ShadowRun{Failure: "test_evidence"}, false
 				}
+				confidence := 0.99
+				snapshot.Decision = &moderation.DecisionIntent{Action: "fold", PolicyID: "SPAM_PROMO", Confidence: &confidence, EvidenceIDs: []string{"target:1"}, Reason: "规则核对通过"}
 				evidence, _ := json.Marshal(snapshot)
 				policy, prompt := moderation.EvalVersions()
-				return moderation.ShadowRun{Model: autoModel, PolicyVersion: policy, PromptVersion: prompt, RuleVersion: moderation.CandidateRuleVersion,
+				return moderation.ShadowRun{DecisionProtocol: moderation.DecisionProtocolVersion, Model: autoModel, PolicyVersion: policy, PromptVersion: prompt, RuleVersion: moderation.CandidateRuleVersion,
 					Evidence: evidence, FoldCandidate: true, Suggestion: json.RawMessage(`{"action":"suggest_fold","policy_id":"SPAM_PROMO","confidence":0.99,"evidence_ids":["target:1"],"reason":"规则核对通过"}`)}, false
 			}
 			policy, prompt := moderation.EvalVersions()

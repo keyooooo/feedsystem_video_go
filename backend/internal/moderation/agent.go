@@ -92,7 +92,7 @@ func containsEvidence(ids []string, target string) bool {
 
 func NewShadowEvaluator(db *gorm.DB, chat model.ToolCallingChatModel, modelID string) ShadowEvaluator {
 	return func(ctx context.Context, report Report) (ShadowRun, bool) {
-		run := ShadowRun{Model: modelID, PolicyVersion: policyVersion, PromptVersion: promptVersion}
+		run := ShadowRun{DecisionProtocol: DecisionProtocolVersion, Model: modelID, PolicyVersion: policyVersion, PromptVersion: promptVersion}
 		evidenceStart := time.Now()
 		snapshot, err := CollectEvidence(ctx, db, report)
 		run.EvidenceMS = time.Since(evidenceStart).Milliseconds()
@@ -116,7 +116,7 @@ func NewShadowEvaluator(db *gorm.DB, chat model.ToolCallingChatModel, modelID st
 		if run.Failure == "" && err == nil {
 			var suggestion Suggestion
 			if json.Unmarshal(run.Suggestion, &suggestion) == nil {
-				run.FoldCandidate = FoldCandidate(snapshot, suggestion)
+				run.FoldCandidate = authorizedFoldIntent(run, snapshot, suggestion) && FoldCandidate(snapshot, suggestion)
 			}
 		}
 		if err != nil {

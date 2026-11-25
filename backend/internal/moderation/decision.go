@@ -3,6 +3,7 @@ package moderation
 import (
 	"errors"
 	"math"
+	"slices"
 
 	"feedsystem_video_go/internal/video"
 	"gorm.io/gorm"
@@ -76,4 +77,15 @@ func recordDecision(tx *gorm.DB, report Report, target video.Comment, decision *
 		return err
 	}
 	return notifyDecision(tx, report, target, *decision, displayChanged)
+}
+
+// authorizedFoldIntent binds the final suggestion to the validated terminal
+// request stored in this execution's evidence snapshot.
+func authorizedFoldIntent(run ShadowRun, snapshot Snapshot, suggestion Suggestion) bool {
+	intent := snapshot.Decision
+	return run.DecisionProtocol == DecisionProtocolVersion && intent != nil &&
+		intent.Action == "fold" && intent.valid(snapshot) &&
+		suggestion.Action == "suggest_fold" && suggestion.PolicyID == intent.PolicyID &&
+		suggestion.Confidence != nil && *suggestion.Confidence == *intent.Confidence &&
+		slices.Equal(suggestion.EvidenceIDs, intent.EvidenceIDs) && suggestion.Reason == intent.Reason
 }

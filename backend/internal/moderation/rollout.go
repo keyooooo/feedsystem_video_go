@@ -60,7 +60,7 @@ func applyAutomaticFold(tx *gorm.DB, item Case, run ShadowRun) (bool, error) {
 	}
 	var snapshot Snapshot
 	var suggestion Suggestion
-	if json.Unmarshal(run.Evidence, &snapshot) != nil || json.Unmarshal(run.Suggestion, &suggestion) != nil || !FoldCandidate(snapshot, suggestion) {
+	if json.Unmarshal(run.Evidence, &snapshot) != nil || json.Unmarshal(run.Suggestion, &suggestion) != nil || !authorizedFoldIntent(run, snapshot, suggestion) || !FoldCandidate(snapshot, suggestion) {
 		return false, nil
 	}
 	var rollout Rollout
